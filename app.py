@@ -4,7 +4,6 @@ import numpy as np
 import random
 import collections
 import altair as alt
-import time
 
 # ==========================================
 # 📘 1. THE HFC-DYNAMIC PROTOCOL ENGINE
@@ -32,13 +31,13 @@ class CommissionEngine:
             buyer = platform.users[t['buyer_id']]
             cv = t['cv']
             
-            # Self
+            # Self Commission (Cashback)
             comm_self = cv * CommissionEngine.COMM_SELF
             buyer.wallet['self'] += comm_self
             platform.current_month_ledger[buyer.id]['self'] += comm_self
             platform.month_stats['self_payout'] += comm_self
             
-            # Direct
+            # Direct Commission (Sponsor)
             if buyer.sponsor_id:
                 sponsor = platform.users[buyer.sponsor_id]
                 comm_direct = cv * CommissionEngine.COMM_DIRECT
@@ -51,7 +50,6 @@ class CommissionEngine:
         for t in transactions:
             sales_map[t['buyer_id']] += t['cv']
             
-        # Iterate all users
         for uid, user in platform.users.items():
             if user.binary_left is None and user.binary_right is None:
                 continue 
@@ -108,7 +106,7 @@ class Platform:
         self.users = {}
         self.user_list = []
         self.history = []
-        self.current_month_ledger = {} # For Export
+        self.current_month_ledger = {} 
         self.month_stats = {
             'revenue': 0.0, 'cv_vol': 0.0, 
             'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
@@ -175,8 +173,7 @@ with st.sidebar.form("sim_form"):
     upgrade_pct = st.slider("% Users Upgrading Tier", 0, 50, 5)
 
     st.subheader("3. Purchasing Behavior")
-    st.write("**Product Mix (Randomized)**")
-    # Catalog hidden in logic but controlled here
+    st.caption("Distribution of buying habits:")
     buy_0 = st.slider("% Buying Nothing", 0, 100, 20)
     buy_1 = st.slider("% Buying 1 Item", 0, 100, 30)
     buy_2 = st.slider("% Buying 2 Items", 0, 100, 30)
@@ -219,16 +216,10 @@ if run_sim:
     c1, c2 = int(total_users*(buy_1/100)), int(total_users*(buy_2/100))
     c3 = total_users - int(total_users*(buy_0/100)) - c1 - c2
     
+    curr_idx = int(total_users*(buy_0/100))
     transactions = []
-    
-    def add_trans(count, num_items):
-        start = len(transactions) // num_items if num_items > 0 else 0 
-        # Logic simplified: just append transactions
-        pass 
-    
-    # Re-doing simplified transaction loop
-    curr_idx = int(total_users*(buy_0/100)) # Skip 0 buyers
-    
+
+    # Helper to generate transactions
     for _ in range(c1): 
         if curr_idx < total_users:
             u = active_users[curr_idx]; curr_idx+=1
@@ -274,50 +265,43 @@ if run_sim:
 # --- VISUALIZATION TABS ---
 st.title("🚀 HFC Ecosystem: Trackdesk MVP")
 
-tabs = st.tabs(["📊 Admin Dashboard (Profitability)", "📥 Batch Payouts (Export)", "🕸️ Network Intelligence", "📋 Full User Data"])
+tabs = st.tabs(["📊 Profitability (Admin)", "📥 Batch Payouts", "🕸️ Network Analysis", "📋 User Database"])
 
 # --- TAB 1: ADMIN PROFITABILITY ---
 with tabs[0]:
     if sys.history:
         last = sys.history[-1]
         
-        # 1. BIG METRICS
-        st.subheader("Financial Performance (Current Month)")
+        st.subheader("Financial Performance")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Gross Revenue", f"${last['Revenue']:,.0f}")
         m2.metric("Total Distributed", f"${last['Payout']:,.0f}", delta=f"{last['Payout']/last['Revenue']*100:.1f}% of Rev")
-        m3.metric("Platform Net Margin", f"${last['Margin']:,.0f}", delta="PROFIT", delta_color="normal")
+        m3.metric("Platform Margin", f"${last['Margin']:,.0f}", delta="PROFIT", delta_color="normal")
         m4.metric("Total Members", f"{len(sys.users):,}")
         
         st.divider()
         
-        # 2. CHARTS
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("Profitability Trend")
-            hist_df = pd.DataFrame(sys.history)
-            st.altair_chart(alt.Chart(hist_df.melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_area().encode(
-                x='Month:O', y='Amt:Q', color='Type:N', tooltip=['Month','Amt']
-            ).properties(height=300), use_container_width=True)
-            
-        with c2:
-            st.subheader("Payout Distribution Breakdown")
-            # Donut chart of current month payouts
+            st.subheader("Payout Distribution")
+            # Explicitly showing Self Payout here
             stats = sys.month_stats
             payout_data = pd.DataFrame([
                 {"Category": "Self (Cashback)", "Amount": stats['self_payout']},
                 {"Category": "Direct (Sponsor)", "Amount": stats['direct_payout']},
-                {"Category": "Passive (HFC Pool)", "Amount": stats['passive_payout']},
-                {"Category": "Company Retained (Breakage)", "Amount": stats['cv_vol'] - (stats['self_payout']+stats['direct_payout']+stats['passive_payout'])}
+                {"Category": "Passive (Pool)", "Amount": stats['passive_payout']},
+                {"Category": "Platform Retained", "Amount": stats['cv_vol'] - (stats['self_payout']+stats['direct_payout']+stats['passive_payout'])}
             ])
             st.altair_chart(alt.Chart(payout_data).mark_arc(innerRadius=50).encode(
                 theta='Amount', color='Category', tooltip=['Category', 'Amount']
             ).properties(height=300), use_container_width=True)
             
-        # 3. PRODUCT MIX
-        st.subheader("Product Mix Sold")
-        prod_df = pd.DataFrame.from_dict(sys.month_stats['products_sold'], orient='index', columns=['Count']).reset_index()
-        st.bar_chart(prod_df.set_index('index'))
+        with c2:
+            st.subheader("Profit Trend")
+            hist_df = pd.DataFrame(sys.history)
+            st.altair_chart(alt.Chart(hist_df.melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_area().encode(
+                x='Month:O', y='Amt:Q', color='Type:N', tooltip=['Month','Amt']
+            ).properties(height=300), use_container_width=True)
 
     else:
         st.info("👈 Run the simulation to see Admin Data.")
@@ -325,10 +309,7 @@ with tabs[0]:
 # --- TAB 2: EXPORT ---
 with tabs[1]:
     st.header("Bank Batch File Generator")
-    st.write("Download the Monthly Payout Ledger for all affiliates.")
-    
     if sys.current_month_ledger:
-        # Convert ledger to DataFrame
         export_data = []
         for uid, pay in sys.current_month_ledger.items():
             if sum(pay.values()) > 0:
@@ -336,7 +317,6 @@ with tabs[1]:
                 export_data.append({
                     "User ID": uid,
                     "Name": u.name,
-                    "Bank Account": "****", # Placeholder
                     "Self Comm": pay['self'],
                     "Direct Comm": pay['direct'],
                     "Passive Comm": pay['passive'],
@@ -344,56 +324,51 @@ with tabs[1]:
                 })
         
         df_export = pd.DataFrame(export_data)
-        
-        st.success(f"Generated Ledger for {len(df_export)} payees.")
         st.dataframe(df_export.head())
         
-        # CSV Download
         csv = df_export.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Payout File (CSV)",
-            data=csv,
-            file_name=f"payout_month_{st.session_state.current_month-1}.csv",
-            mime="text/csv",
-        )
+        st.download_button("📥 Download CSV", csv, "payouts.csv", "text/csv")
     else:
-        st.warning("No payout data available. Run simulation first.")
+        st.warning("No payout data available.")
 
 # --- TAB 3: NETWORK INTELLIGENCE ---
 with tabs[2]:
-    st.subheader("Tree Structure Analysis")
-    c1, c2 = st.columns([1, 1])
+    st.subheader("Top Earner Breakdown")
+    c1, c2 = st.columns([2, 1])
     
     with c1:
-        st.write("**Top 10 Earners (Lifetime)**")
+        # Added Self Commission column here
         top_users = sorted(sys.users.values(), key=lambda x: sum(x.wallet.values()), reverse=True)[:10]
         st.table(pd.DataFrame([{
-            "ID": u.id, "Pkg": u.package, "Total": f"${sum(u.wallet.values()):,.2f}"
+            "ID": u.id, 
+            "Pkg": u.package, 
+            "Total": f"${sum(u.wallet.values()):,.2f}",
+            "Self (Cashback)": f"${u.wallet['self']:,.2f}", 
+            "Direct": f"${u.wallet['direct']:,.2f}",
+            "Passive": f"${u.wallet['passive']:,.2f}"
         } for u in top_users]))
         
     with c2:
-        st.write("**User Auditor**")
-        uid_input = st.text_input("Enter User ID to Audit", "u1a")
+        st.write("**Audit User**")
+        uid_input = st.text_input("User ID", "u1a")
         if uid_input in sys.users:
             u = sys.users[uid_input]
-            # BFS Count
             q, count = collections.deque([u.id]), 0
             while q:
                 n = sys.users[q.popleft()]
                 if n.binary_left: q.append(n.binary_left); count+=1
                 if n.binary_right: q.append(n.binary_right); count+=1
-            
-            st.metric("Package", u.package)
-            st.metric("Binary Team Size", count)
-            st.metric("Lifetime Passive Earnings", f"${u.wallet['passive']:,.2f}")
-            
+            st.metric("Binary Team", count)
+            st.metric("Total Passive", f"${u.wallet['passive']:,.2f}")
+            st.metric("Total Cashback", f"${u.wallet['self']:,.2f}")
+
 # --- TAB 4: RAW DATA ---
 with tabs[3]:
-    st.write("Full Database View")
+    st.write("Full Database")
     all_data = []
     for u in sys.users.values():
         all_data.append({
             "ID": u.id, "Pkg": u.package, "Sponsor": u.sponsor_id,
-            "Wallet Balance": sum(u.wallet.values())
+            "Self": sum(u.wallet.values())
         })
     st.dataframe(pd.DataFrame(all_data), use_container_width=True)
