@@ -92,7 +92,7 @@ class User:
         self.name = name
         self.package = package
         self.sponsor_id = sponsor_id
-        self.joined_month = joined_month # Tracks Tenure
+        self.joined_month = joined_month
         self.binary_left = None
         self.binary_right = None
         self.wallet = {'self': 0.0, 'direct': 0.0, 'passive': 0.0}
@@ -193,7 +193,6 @@ if run_sim:
     
     sponsors = random.choices(existing_ids, weights=weights, k=new_members_count)
     for i in range(new_members_count):
-        # Register with Current Month
         sys.register_user(f"User", random.choices([100, 250, 500], weights=[25,45,30])[0], sponsors[i], joined_month=st.session_state.current_month)
 
     # C. TRANSACTIONS
@@ -213,20 +212,37 @@ if run_sim:
     curr_idx = int(total_users*(buy_0/100))
     transactions = []
 
-    def process_batch(count, items):
-        nonlocal curr_idx
-        for _ in range(count):
-            if curr_idx < total_users:
-                u = active_users[curr_idx]; curr_idx+=1
-                for _ in range(items):
-                    p = random.choice(CATALOG)
-                    transactions.append({'buyer_id': u.id, 'cv': p['cv']})
-                    sys.month_stats['revenue'] += p['price']
-                    sys.month_stats['cv_vol'] += p['cv']
-    
-    process_batch(c1, 1)
-    process_batch(c2, 2)
-    process_batch(total_users - curr_idx, 3) 
+    # --- FIXED LOGIC: LINEAR PROCESSING ---
+    # 1 Item Buyers
+    for _ in range(c1):
+        if curr_idx < total_users:
+            u = active_users[curr_idx]; curr_idx+=1
+            p = random.choice(CATALOG)
+            transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+            sys.month_stats['revenue'] += p['price']
+            sys.month_stats['cv_vol'] += p['cv']
+            sys.month_stats['products_sold'][p['name']] += 1
+
+    # 2 Item Buyers
+    for _ in range(c2):
+        if curr_idx < total_users:
+            u = active_users[curr_idx]; curr_idx+=1
+            for _ in range(2):
+                p = random.choice(CATALOG)
+                transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+                sys.month_stats['revenue'] += p['price']
+                sys.month_stats['cv_vol'] += p['cv']
+                sys.month_stats['products_sold'][p['name']] += 1
+
+    # 3 Item Buyers (Rest)
+    while curr_idx < total_users:
+        u = active_users[curr_idx]; curr_idx+=1
+        for _ in range(3):
+            p = random.choice(CATALOG)
+            transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+            sys.month_stats['revenue'] += p['price']
+            sys.month_stats['cv_vol'] += p['cv']
+            sys.month_stats['products_sold'][p['name']] += 1
 
     # D. PAYOUTS
     CommissionEngine.run_payouts(sys, transactions)
@@ -345,7 +361,6 @@ with tabs[3]:
             df_db = pd.DataFrame(db_data)
             st.dataframe(df_db, use_container_width=True)
             
-            # Allow download of the full database too
             csv_db = df_db.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Download User DB (CSV)", csv_db, "HFC_User_Database.csv", "text/csv")
     else:
