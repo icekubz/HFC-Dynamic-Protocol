@@ -23,10 +23,7 @@ class CommissionEngine:
 
     @staticmethod
     def run_payouts(platform, transactions):
-        """
-        Processes a batch of transactions for the month.
-        """
-        # 1. PRE-CALCULATE DIRECT & SELF (Fast Loop)
+        # 1. PRE-CALCULATE DIRECT & SELF
         for t in transactions:
             buyer = platform.users[t['buyer_id']]
             cv = t['cv']
@@ -43,16 +40,14 @@ class CommissionEngine:
                 platform.month_stats['direct_payout'] += direct_amt
 
         # 2. PASSIVE CALCULATION (Per User / Top-Down)
-        
-        # Create a map of sales for fast lookup: {user_id: total_cv_generated_this_month}
         sales_map = collections.defaultdict(float)
         for t in transactions:
             sales_map[t['buyer_id']] += t['cv']
             
-        # Iterate all users to calculate their Passive Income
         for uid, user in platform.users.items():
+            # Optimization: Skip if no binary team
             if user.binary_left is None and user.binary_right is None:
-                continue # Skip leaf nodes (no team)
+                continue 
             
             rule = CommissionEngine.PACKAGE_RULES[user.package]
             cap = rule['cap']
@@ -63,20 +58,17 @@ class CommissionEngine:
             actual_depth = 0
             count = 0
             
-            queue = collections.deque([(uid, 0)]) # (id, depth)
+            queue = collections.deque([(uid, 0)])
             
             while queue and count < cap:
                 curr_id, d = queue.popleft()
-                
                 if curr_id != uid:
-                    # Add this person's volume to the User's passive pot
                     vol = sales_map.get(curr_id, 0.0)
                     if vol > 0:
                         team_cv += vol
                         actual_depth = max(actual_depth, d)
                     count += 1
                 
-                # Traverse
                 node = platform.users[curr_id]
                 if node.binary_left: queue.append((node.binary_left, d+1))
                 if node.binary_right: queue.append((node.binary_right, d+1))
@@ -105,14 +97,9 @@ class User:
 class Platform:
     def __init__(self):
         self.users = {}
-        self.user_list = [] # For indexed access
-        self.history = [] # Stores monthly summaries
-        self.month_stats = {
-            'revenue': 0.0, 'cv_vol': 0.0, 
-            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0
-        }
-        
-        # Init Root
+        self.user_list = []
+        self.history = []
+        self.month_stats = {'revenue': 0.0, 'cv_vol': 0.0, 'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0}
         self.register_user("AdminRoot", 500, None)
         
     def register_user(self, name, package, sponsor_id):
@@ -121,36 +108,22 @@ class Platform:
         self.users[uid] = new_user
         self.user_list.append(uid)
         
-        # PLACEMENT LOGIC: STRICT SPONSOR-RELATIVE
-        # 1. Start searching at the Sponsor (sponsor_id)
-        # 2. Fill their subtree Top-to-Bottom, Left-to-Right
-        
+        # PLACEMENT: Strict Sponsor-Relative
         if uid != "u1a":
-            # If sponsor exists in system, place under them. Else under Root.
             start_node = sponsor_id if sponsor_id in self.users else "u1a"
             self._place_in_binary_strict(start_node, uid)
-            
         return new_user
 
     def _place_in_binary_strict(self, start_node_id, new_uid):
-        """
-        Finds the first empty spot in the SUBTREE of start_node_id.
-        Strict BFS: Always check Left, then Right.
-        """
         queue = collections.deque([start_node_id])
-        
         while queue:
             curr_id = queue.popleft()
             curr = self.users[curr_id]
-            
-            # Check Left
             if curr.binary_left is None:
                 curr.binary_left = new_uid
                 return
             else:
                 queue.append(curr.binary_left)
-                
-            # Check Right
             if curr.binary_right is None:
                 curr.binary_right = new_uid
                 return
@@ -158,16 +131,13 @@ class Platform:
                 queue.append(curr.binary_right)
 
     def reset_month_stats(self):
-        self.month_stats = {
-            'revenue': 0.0, 'cv_vol': 0.0, 
-            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0
-        }
+        self.month_stats = {'revenue': 0.0, 'cv_vol': 0.0, 'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0}
 
 # ==========================================
 # 🖥️ 3. STREAMLIT APP UI
 # ==========================================
 
-st.set_page_config(page_title="HFC Simulation", layout="wide")
+st.set_page_config(page_title="HFC MVP", layout="wide")
 
 # Session State
 if 'sys' not in st.session_state:
@@ -176,108 +146,97 @@ if 'sys' not in st.session_state:
 
 sys = st.session_state.sys
 
-# --- SIDEBAR: SIMULATION CONTROLS ---
-st.sidebar.header(f"🗓️ Simulator: Month {st.session_state.current_month}")
+# --- SIDEBAR: CONTROLS ---
+st.sidebar.header(f"🗓️ Month {st.session_state.current_month} Controls")
 
 with st.sidebar.form("sim_form"):
-    st.subheader("1. Growth (New Members)")
-    new_members_count = st.number_input("New Affiliates Joining", value=1000, step=100)
-    
-    st.subheader("2. Recruiting Distribution")
-    st.info("How many people do the hard work?")
-    percent_leaders = st.slider("% of 'Leaders' (Heavy Recruiters)", 1, 20, 5)
-    
-    st.subheader("3. Purchasing Behavior")
-    st.write("Define % of ALL users buying products:")
-    buy_0 = st.slider("% Buying 0 Products", 0, 100, 20)
-    buy_1 = st.slider("% Buying 1 Product ($100)", 0, 100, 30)
-    buy_2 = st.slider("% Buying 2 Products ($200)", 0, 100, 30)
-    # Remaining goes to 3 products
-    buy_3 = max(0, 100 - (buy_0 + buy_1 + buy_2))
-    st.caption(f"Remaining {buy_3}% will buy 3 Products ($300)")
-    
-    run_sim = st.form_submit_button("🚀 Run Simulation for Month")
+    st.subheader("1. New Growth")
+    new_members_count = st.number_input("New Users Joining", value=500, step=100)
+    percent_leaders = st.slider("% Leaders (Heavy Recruiters)", 1, 20, 5)
 
-# --- SIMULATION LOGIC ---
+    st.subheader("2. Existing User Upgrades")
+    st.info("Simulate users moving to higher tiers")
+    upgrade_pct = st.slider("% of Users Upgrading Package", 0, 50, 5)
+
+    st.subheader("3. Product Mix")
+    st.caption("Distribution of what users buy this month:")
+    buy_0 = st.slider("% Buying Nothing", 0, 100, 20)
+    buy_1 = st.slider("% Buying 1 Item", 0, 100, 30)
+    buy_2 = st.slider("% Buying 2 Items", 0, 100, 30)
+    buy_3 = max(0, 100 - (buy_0 + buy_1 + buy_2))
+    st.write(f"*Remaining {buy_3}% will buy 3 Items*")
+    
+    run_sim = st.form_submit_button("🚀 Run Month Simulation")
+
+# --- LOGIC ---
 if run_sim:
     sys.reset_month_stats()
     
-    # A. ADD NEW MEMBERS (UNEVEN GROWTH)
-    # We select sponsors based on weights.
-    # Leaders get high weight (recruit many). Passive users get low weight.
+    # A. PROCESS UPGRADES
+    upgraded_count = 0
+    if upgrade_pct > 0:
+        # Filter upgradable users (100 or 250 pkg)
+        candidates = [u for u in sys.users.values() if u.package < 500]
+        num_upgrades = int(len(candidates) * (upgrade_pct/100))
+        if num_upgrades > 0:
+            upgraders = random.sample(candidates, num_upgrades)
+            for u in upgraders:
+                if u.package == 100: u.package = 250
+                elif u.package == 250: u.package = 500
+                upgraded_count += 1
+    
+    # B. REGISTER NEW MEMBERS
     existing_ids = sys.user_list
     weights = [1.0] * len(existing_ids)
-    
-    # Assign heavy weights to the "Leaders"
     leader_count = int(len(existing_ids) * (percent_leaders/100))
-    # Pick random leaders if not already tracked, but for simplicity we randomize indices
-    # To keep it "Uneven", we pick random indices to be the leaders for this month
     leader_indices = random.sample(range(len(existing_ids)), max(1, leader_count))
+    for idx in leader_indices: weights[idx] = 50.0 
     
-    for idx in leader_indices:
-        weights[idx] = 50.0 # Leaders are 50x more likely to recruit
-        
     sponsors = random.choices(existing_ids, weights=weights, k=new_members_count)
-    
-    with st.spinner(f"Registering {new_members_count} new members (Strict Subtree Placement)..."):
-        for i in range(new_members_count):
-            sponsor_id = sponsors[i]
-            pkg = random.choices([100, 250, 500], weights=[25, 45, 30])[0]
-            sys.register_user(f"User", pkg, sponsor_id)
-            
-    # B. GENERATE TRANSACTIONS
+    for i in range(new_members_count):
+        sponsor_id = sponsors[i]
+        pkg = random.choices([100, 250, 500], weights=[25, 45, 30])[0]
+        sys.register_user(f"User", pkg, sponsor_id)
+
+    # C. TRANSACTIONS (Mixed Products)
     active_users = list(sys.users.values())
     transactions = []
     
-    # Product Params (Average)
-    PROD_PRICE = 100.0
-    PROD_CV = 40.0 # 40% CV
+    # Product Catalog (Name, Price, CV)
+    CATALOG = [
+        {"price": 20.0, "cv": 8.0},    # E-Book (40% CV)
+        {"price": 100.0, "cv": 5.0},   # Grocery (5% CV)
+        {"price": 150.0, "cv": 45.0},  # Software (30% CV)
+        {"price": 500.0, "cv": 250.0}, # Course (50% CV)
+    ]
     
-    # Shuffle to randomize who buys
     random.shuffle(active_users)
     total_users = len(active_users)
+    c0, c1, c2 = int(total_users*(buy_0/100)), int(total_users*(buy_1/100)), int(total_users*(buy_2/100))
     
-    # Calculate counts
-    c0 = int(total_users * (buy_0/100))
-    c1 = int(total_users * (buy_1/100))
-    c2 = int(total_users * (buy_2/100))
+    curr = 0
+    curr += c0 # Skip 0 buyers
     
-    with st.spinner("Processing Transactions & Commissions..."):
-        current_idx = 0
-        
-        # Skip 0 buyers
-        current_idx += c0
-        
-        # 1 Product Buyers
-        for i in range(c1):
-            if current_idx < total_users:
-                u = active_users[current_idx]
-                transactions.append({'buyer_id': u.id, 'cv': PROD_CV})
-                sys.month_stats['revenue'] += PROD_PRICE
-                sys.month_stats['cv_vol'] += PROD_CV
-                current_idx += 1
-                
-        # 2 Product Buyers
-        for i in range(c2):
-            if current_idx < total_users:
-                u = active_users[current_idx]
-                transactions.append({'buyer_id': u.id, 'cv': PROD_CV*2})
-                sys.month_stats['revenue'] += PROD_PRICE*2
-                sys.month_stats['cv_vol'] += PROD_CV*2
-                current_idx += 1
-                
-        # 3 Product Buyers (Rest)
-        while current_idx < total_users:
-            u = active_users[current_idx]
-            transactions.append({'buyer_id': u.id, 'cv': PROD_CV*3})
-            sys.month_stats['revenue'] += PROD_PRICE*3
-            sys.month_stats['cv_vol'] += PROD_CV*3
-            current_idx += 1
+    def gen_trans(count, num_items):
+        nonlocal curr
+        for _ in range(count):
+            if curr < total_users:
+                u = active_users[curr]
+                for _ in range(num_items):
+                    p = random.choice(CATALOG)
+                    transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+                    sys.month_stats['revenue'] += p['price']
+                    sys.month_stats['cv_vol'] += p['cv']
+                curr += 1
 
-        # C. RUN PAYOUTS
-        CommissionEngine.run_payouts(sys, transactions)
+    gen_trans(c1, 1)
+    gen_trans(c2, 2)
+    gen_trans(total_users - curr, 3)
+
+    # D. PAYOUTS
+    CommissionEngine.run_payouts(sys, transactions)
     
-    # D. SAVE HISTORY
+    # E. HISTORY
     total_payout = sys.month_stats['self_payout'] + sys.month_stats['direct_payout'] + sys.month_stats['passive_payout']
     sys.history.append({
         "Month": st.session_state.current_month,
@@ -285,95 +244,57 @@ if run_sim:
         "Revenue": sys.month_stats['revenue'],
         "CV Volume": sys.month_stats['cv_vol'],
         "Payout": total_payout,
-        "Margin": sys.month_stats['cv_vol'] - total_payout
+        "Margin": sys.month_stats['cv_vol'] - total_payout,
+        "Upgrades": upgraded_count
     })
-    
     st.session_state.current_month += 1
-    st.success("Month Simulation Complete!")
 
-# --- DASHBOARD UI ---
+# --- VISUALIZATION ---
+st.title("🚀 HFC Protocol: Trackdesk MVP")
+st.markdown("Live simulation of **Multi-Level Affiliate Logic** with Vendor-defined CV.")
 
-st.title("📊 HFC Network Simulator")
-st.markdown("**Logic:** Uneven recruiting + Strict Sponsor-Relative Placement.")
-
-# 1. KPI ROW
 if sys.history:
     last = sys.history[-1]
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Members", f"{last['Members']:,}")
-    k2.metric("Monthly Revenue", f"${last['Revenue']:,.0f}")
-    k3.metric("Total Payout", f"${last['Payout']:,.0f}")
-    k4.metric("Platform Margin (on CV)", f"${last['Margin']:,.0f}")
-
-# 2. CHARTS
-col_chart1, col_chart2 = st.columns(2)
-
-if sys.history:
-    df_hist = pd.DataFrame(sys.history)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Members", f"{last['Members']:,}", f"+{new_members_count}")
+    c2.metric("Monthly Revenue", f"${last['Revenue']:,.0f}")
+    c3.metric("Platform Margin", f"${last['Margin']:,.0f}")
+    c4.metric("User Upgrades", f"{last['Upgrades']}")
     
-    with col_chart1:
-        st.subheader("Growth & Revenue")
-        chart = alt.Chart(df_hist).mark_line(point=True).encode(
-            x='Month:O',
-            y='Revenue:Q',
-            tooltip=['Month', 'Revenue', 'Members']
-        ).interactive()
-        st.altair_chart(chart, use_container_width=True)
-        
-    with col_chart2:
-        st.subheader("Payout vs Margin")
-        df_melt = df_hist.melt('Month', value_vars=['Payout', 'Margin'], var_name='Type', value_name='Amount')
-        chart2 = alt.Chart(df_melt).mark_bar().encode(
-            x='Month:O',
-            y='Amount:Q',
-            color='Type:N',
-            tooltip=['Month', 'Type', 'Amount']
-        )
-        st.altair_chart(chart2, use_container_width=True)
+    # Charts
+    df = pd.DataFrame(sys.history)
+    tab1, tab2 = st.tabs(["Financials", "Network Growth"])
+    with tab1:
+        st.altair_chart(alt.Chart(df.melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_bar().encode(
+            x='Month:O', y='Amt:Q', color='Type:N', tooltip=['Month','Type','Amt']
+        ).properties(height=300), use_container_width=True)
+    with tab2:
+        st.altair_chart(alt.Chart(df).mark_line(point=True).encode(
+            x='Month:O', y='Members:Q', tooltip=['Month','Members']
+        ).properties(height=300), use_container_width=True)
 
-# 3. UNEVEN TREE ANALYSIS
 st.divider()
-st.subheader("🔍 Uneven Tree Verification")
-
-tab1, tab2 = st.tabs(["🏆 Top Earners", "🕷️ Specific User Lookup"])
-
-with tab1:
-    all_users = list(sys.users.values())
-    all_users.sort(key=lambda x: sum(x.wallet.values()), reverse=True)
-    
-    top_data = []
-    for u in all_users[:10]:
-        top_data.append({
-            "User ID": u.id,
-            "Package": u.package,
-            "Total Earned": f"${sum(u.wallet.values()):,.2f}",
-            "Passive": f"${u.wallet['passive']:,.2f}",
-            "Direct": f"${u.wallet['direct']:,.2f}"
-        })
-    st.table(pd.DataFrame(top_data))
-
-with tab2:
-    st.write("Enter an ID to see their Binary Tree size. Compare a 'Leader' to a 'Passive' user.")
-    uid_input = st.text_input("Enter User ID (e.g., u1a, u50a)", "u1a")
-    
-    if uid_input in sys.users:
-        u = sys.users[uid_input]
-        
-        # Calculate Subtree Size
-        q = collections.deque([u.id])
-        count = 0
+st.subheader("🔍 Deep Dive: Network Structure")
+c1, c2 = st.columns([2,1])
+with c1:
+    st.write("Top 10 Earners (Verify 'Whale' Logic)")
+    users = sorted(sys.users.values(), key=lambda x: sum(x.wallet.values()), reverse=True)[:10]
+    st.table(pd.DataFrame([{
+        "ID": u.id, "Pkg": u.package, 
+        "Total": f"${sum(u.wallet.values()):,.0f}", 
+        "Passive": f"${u.wallet['passive']:,.0f}",
+        "Direct": f"${u.wallet['direct']:,.0f}"
+    } for u in users]))
+with c2:
+    st.write("Lookup User Tree")
+    uid = st.text_input("User ID", "u1a")
+    if uid in sys.users:
+        u = sys.users[uid]
+        # Count team
+        q, count = collections.deque([u.id]), 0
         while q:
-            c = sys.users[q.popleft()]
-            if c.binary_left: 
-                q.append(c.binary_left)
-                count += 1
-            if c.binary_right: 
-                q.append(c.binary_right)
-                count += 1
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Package", u.package)
-        c2.metric("Binary Team Size", count)
-        c3.metric("Passive Earnings", f"${u.wallet['passive']:,.2f}")
-    else:
-        st.error("User not found.")
+            n = sys.users[q.popleft()]
+            if n.binary_left: q.append(n.binary_left); count+=1
+            if n.binary_right: q.append(n.binary_right); count+=1
+        st.metric("Binary Team Size", count)
+        st.metric("Passive Income", f"${u.wallet['passive']:,.2f}")
