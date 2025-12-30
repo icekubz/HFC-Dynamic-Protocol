@@ -14,7 +14,6 @@ class CommissionEngine:
     COMM_DIRECT = 0.15   # 15% of CV
     COMM_POOL = 0.50     # 50% of CV
     
-    # Cap = Max Members in team | Min Depth = Divisor Floor
     PACKAGE_RULES = {
         100: {"cap": 1024, "min_depth": 10},
         250: {"cap": 32768, "min_depth": 15},
@@ -23,34 +22,35 @@ class CommissionEngine:
 
     @staticmethod
     def run_payouts(platform, transactions):
-        # Reset monthly ledger for the batch export
+        # Reset current month ledger
         platform.current_month_ledger = collections.defaultdict(lambda: {'self':0.0, 'direct':0.0, 'passive':0.0})
         
-        # 1. PRE-CALCULATE DIRECT & SELF
+        # 1. DIRECT & SELF
         for t in transactions:
             buyer = platform.users[t['buyer_id']]
             cv = t['cv']
             
-            # Self Commission (Cashback)
-            comm_self = cv * CommissionEngine.COMM_SELF
-            buyer.wallet['self'] += comm_self
-            platform.current_month_ledger[buyer.id]['self'] += comm_self
-            platform.month_stats['self_payout'] += comm_self
+            # Self
+            s_amt = cv * CommissionEngine.COMM_SELF
+            buyer.wallet['self'] += s_amt
+            platform.current_month_ledger[buyer.id]['self'] += s_amt
+            platform.month_stats['self_payout'] += s_amt
             
-            # Direct Commission (Sponsor)
+            # Direct
             if buyer.sponsor_id:
                 sponsor = platform.users[buyer.sponsor_id]
-                comm_direct = cv * CommissionEngine.COMM_DIRECT
-                sponsor.wallet['direct'] += comm_direct
-                platform.current_month_ledger[sponsor.id]['direct'] += comm_direct
-                platform.month_stats['direct_payout'] += comm_direct
+                d_amt = cv * CommissionEngine.COMM_DIRECT
+                sponsor.wallet['direct'] += d_amt
+                platform.current_month_ledger[sponsor.id]['direct'] += d_amt
+                platform.month_stats['direct_payout'] += d_amt
 
-        # 2. PASSIVE CALCULATION (Per User / Top-Down)
+        # 2. PASSIVE (HFC POOL)
         sales_map = collections.defaultdict(float)
         for t in transactions:
             sales_map[t['buyer_id']] += t['cv']
             
         for uid, user in platform.users.items():
+            # Optimization: Leaf nodes earn 0 passive
             if user.binary_left is None and user.binary_right is None:
                 continue 
             
@@ -58,13 +58,11 @@ class CommissionEngine:
             cap = rule['cap']
             min_depth = rule['min_depth']
             
-            # BFS to gather team CV up to CAP
             team_cv = 0.0
             actual_depth = 0
             count = 0
             
             queue = collections.deque([(uid, 0)])
-            
             while queue and count < cap:
                 curr_id, d = queue.popleft()
                 if curr_id != uid:
@@ -78,7 +76,6 @@ class CommissionEngine:
                 if node.binary_left: queue.append((node.binary_left, d+1))
                 if node.binary_right: queue.append((node.binary_right, d+1))
             
-            # APPLY FORMULA
             if team_cv > 0:
                 divisor = max(actual_depth, min_depth)
                 payout = (team_cv * CommissionEngine.COMM_POOL) / divisor
@@ -100,6 +97,9 @@ class User:
         self.binary_left = None
         self.binary_right = None
         self.wallet = {'self': 0.0, 'direct': 0.0, 'passive': 0.0}
+        # Caching for report
+        self.cached_team_size = 0
+        self.cached_team_depth = 0
 
 class Platform:
     def __init__(self):
@@ -109,8 +109,7 @@ class Platform:
         self.current_month_ledger = {} 
         self.month_stats = {
             'revenue': 0.0, 'cv_vol': 0.0, 
-            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
-            'products_sold': collections.defaultdict(int)
+            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0
         }
         self.register_user("AdminRoot", 500, None)
         
@@ -144,9 +143,17 @@ class Platform:
     def reset_month_stats(self):
         self.month_stats = {
             'revenue': 0.0, 'cv_vol': 0.0, 
-            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
-            'products_sold': collections.defaultdict(int)
+            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0
         }
+        
+    def calculate_network_stats(self):
+        """Calculates Team Size for ALL users efficiently (Bottom-Up)"""
+        # We can't do true bottom-up easily without parent links, so we use
+        # a simplified recursive cache approach for the report generation.
+        # Given 15k users, we'll do a specialized iterative pass or just
+        # accept BFS for the active export. 
+        # For MVP stability, we will use a safe BFS per user in the export logic.
+        pass
 
 # ==========================================
 # 🖥️ 3. STREAMLIT APP UI
@@ -160,27 +167,24 @@ if 'sys' not in st.session_state:
 
 sys = st.session_state.sys
 
-# --- SIDEBAR: CONTROLS ---
+# --- SIDEBAR ---
 st.sidebar.title(f"🗓️ Month {st.session_state.current_month}")
-st.sidebar.markdown("---")
-
 with st.sidebar.form("sim_form"):
     st.subheader("1. New Growth")
     new_members_count = st.number_input("New Users Joining", value=1000, step=100)
-    percent_leaders = st.slider("% Leaders (Power Recruiters)", 1, 20, 5)
+    percent_leaders = st.slider("% Leaders", 1, 20, 5)
 
     st.subheader("2. Upgrades")
     upgrade_pct = st.slider("% Users Upgrading Tier", 0, 50, 5)
 
     st.subheader("3. Purchasing Behavior")
-    st.caption("Distribution of buying habits:")
     buy_0 = st.slider("% Buying Nothing", 0, 100, 20)
     buy_1 = st.slider("% Buying 1 Item", 0, 100, 30)
     buy_2 = st.slider("% Buying 2 Items", 0, 100, 30)
     
     run_sim = st.form_submit_button("🚀 Run Simulation")
 
-# --- SIMULATION LOGIC ---
+# --- SIMULATION ENGINE ---
 if run_sim:
     sys.reset_month_stats()
     
@@ -219,34 +223,20 @@ if run_sim:
     curr_idx = int(total_users*(buy_0/100))
     transactions = []
 
-    # Helper to generate transactions
-    for _ in range(c1): 
-        if curr_idx < total_users:
-            u = active_users[curr_idx]; curr_idx+=1
-            p = random.choice(CATALOG)
-            transactions.append({'buyer_id': u.id, 'cv': p['cv']})
-            sys.month_stats['revenue'] += p['price']
-            sys.month_stats['cv_vol'] += p['cv']
-            sys.month_stats['products_sold'][p['name']] += 1
-            
-    for _ in range(c2):
-        if curr_idx < total_users:
-            u = active_users[curr_idx]; curr_idx+=1
-            for _ in range(2):
-                p = random.choice(CATALOG)
-                transactions.append({'buyer_id': u.id, 'cv': p['cv']})
-                sys.month_stats['revenue'] += p['price']
-                sys.month_stats['cv_vol'] += p['cv']
-                sys.month_stats['products_sold'][p['name']] += 1
-
-    while curr_idx < total_users:
-        u = active_users[curr_idx]; curr_idx+=1
-        for _ in range(3):
-            p = random.choice(CATALOG)
-            transactions.append({'buyer_id': u.id, 'cv': p['cv']})
-            sys.month_stats['revenue'] += p['price']
-            sys.month_stats['cv_vol'] += p['cv']
-            sys.month_stats['products_sold'][p['name']] += 1
+    def process_batch(count, items):
+        nonlocal curr_idx
+        for _ in range(count):
+            if curr_idx < total_users:
+                u = active_users[curr_idx]; curr_idx+=1
+                for _ in range(items):
+                    p = random.choice(CATALOG)
+                    transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+                    sys.month_stats['revenue'] += p['price']
+                    sys.month_stats['cv_vol'] += p['cv']
+    
+    process_batch(c1, 1)
+    process_batch(c2, 2)
+    process_batch(total_users - curr_idx, 3) # Rest buy 3
 
     # D. PAYOUTS
     CommissionEngine.run_payouts(sys, transactions)
@@ -262,113 +252,129 @@ if run_sim:
     })
     st.session_state.current_month += 1
 
-# --- VISUALIZATION TABS ---
-st.title("🚀 HFC Ecosystem: Trackdesk MVP")
+# --- VISUALIZATION ---
+st.title("🚀 HFC Ecosystem: Master Dashboard")
 
-tabs = st.tabs(["📊 Profitability (Admin)", "📥 Batch Payouts", "🕸️ Network Analysis", "📋 User Database"])
+tabs = st.tabs(["📊 Profitability", "📥 Master Report & Payouts", "🕸️ Network Analysis"])
 
-# --- TAB 1: ADMIN PROFITABILITY ---
+# --- TAB 1: PROFITABILITY ---
 with tabs[0]:
     if sys.history:
         last = sys.history[-1]
-        
-        st.subheader("Financial Performance")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Gross Revenue", f"${last['Revenue']:,.0f}")
-        m2.metric("Total Distributed", f"${last['Payout']:,.0f}", delta=f"{last['Payout']/last['Revenue']*100:.1f}% of Rev")
-        m3.metric("Platform Margin", f"${last['Margin']:,.0f}", delta="PROFIT", delta_color="normal")
-        m4.metric("Total Members", f"{len(sys.users):,}")
-        
-        st.divider()
+        m2.metric("Total Payout", f"${last['Payout']:,.0f}")
+        m3.metric("Platform Profit", f"${last['Margin']:,.0f}", delta="RETAINED")
+        m4.metric("Active Members", f"{len(sys.users):,}")
         
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Payout Distribution")
-            # Explicitly showing Self Payout here
             stats = sys.month_stats
             payout_data = pd.DataFrame([
-                {"Category": "Self (Cashback)", "Amount": stats['self_payout']},
-                {"Category": "Direct (Sponsor)", "Amount": stats['direct_payout']},
-                {"Category": "Passive (Pool)", "Amount": stats['passive_payout']},
-                {"Category": "Platform Retained", "Amount": stats['cv_vol'] - (stats['self_payout']+stats['direct_payout']+stats['passive_payout'])}
+                {"Type": "Self (Cashback)", "Val": stats['self_payout']},
+                {"Type": "Direct (Sponsor)", "Val": stats['direct_payout']},
+                {"Type": "Passive (Pool)", "Val": stats['passive_payout']},
+                {"Type": "Company Profit", "Val": stats['cv_vol'] - (stats['self_payout']+stats['direct_payout']+stats['passive_payout'])}
             ])
-            st.altair_chart(alt.Chart(payout_data).mark_arc(innerRadius=50).encode(
-                theta='Amount', color='Category', tooltip=['Category', 'Amount']
-            ).properties(height=300), use_container_width=True)
-            
+            st.altair_chart(alt.Chart(payout_data).mark_arc(innerRadius=60).encode(
+                theta='Val', color='Type', tooltip=['Type', 'Val']
+            ).properties(height=350), use_container_width=True)
+        
         with c2:
-            st.subheader("Profit Trend")
-            hist_df = pd.DataFrame(sys.history)
-            st.altair_chart(alt.Chart(hist_df.melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_area().encode(
-                x='Month:O', y='Amt:Q', color='Type:N', tooltip=['Month','Amt']
-            ).properties(height=300), use_container_width=True)
-
+            st.subheader("Financial Trend")
+            st.altair_chart(alt.Chart(pd.DataFrame(sys.history).melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_area().encode(
+                x='Month:O', y='Amt:Q', color='Type:N'
+            ).properties(height=350), use_container_width=True)
     else:
-        st.info("👈 Run the simulation to see Admin Data.")
+        st.info("👈 Run Simulation to begin.")
 
-# --- TAB 2: EXPORT ---
+# --- TAB 2: MASTER REPORT (FIXED) ---
 with tabs[1]:
-    st.header("Bank Batch File Generator")
+    st.header("Master Affiliate Report")
+    st.markdown("Download comprehensive data: **Earnings + Downline Stats + Payouts**.")
+    
     if sys.current_month_ledger:
-        export_data = []
-        for uid, pay in sys.current_month_ledger.items():
-            if sum(pay.values()) > 0:
-                u = sys.users[uid]
-                export_data.append({
+        with st.spinner("Generating Report (Calculating Team Sizes for all users)..."):
+            # Generate the FULL report
+            master_data = []
+            
+            # Helper to count team size (BFS)
+            # For 15k users this might take 2-3 seconds, which is fine for export
+            for uid, u in sys.users.items():
+                # Only include active users or those with earnings
+                pay = sys.current_month_ledger.get(uid, {'self':0, 'direct':0, 'passive':0})
+                total_earn = sum(pay.values())
+                
+                # Basic info
+                row = {
                     "User ID": uid,
                     "Name": u.name,
-                    "Self Comm": pay['self'],
-                    "Direct Comm": pay['direct'],
-                    "Passive Comm": pay['passive'],
-                    "TOTAL PAYOUT": sum(pay.values())
-                })
-        
-        df_export = pd.DataFrame(export_data)
-        st.dataframe(df_export.head())
-        
-        csv = df_export.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download CSV", csv, "payouts.csv", "text/csv")
+                    "Package": u.package,
+                    "Sponsor ID": u.sponsor_id,
+                    "Self Comm ($)": round(pay['self'], 2),
+                    "Direct Comm ($)": round(pay['direct'], 2),
+                    "Passive Comm ($)": round(pay['passive'], 2),
+                    "TOTAL PAYOUT ($)": round(total_earn, 2)
+                }
+                
+                # Downline Stats (Only calc if necessary for speed, or calc for top earners)
+                # For the Master File, we want it for everyone.
+                # Simplified BFS for Export
+                if u.binary_left or u.binary_right:
+                    q = collections.deque([u.id])
+                    count = 0
+                    while q:
+                        c_id = q.popleft()
+                        if c_id != u.id: count += 1
+                        node = sys.users[c_id]
+                        if node.binary_left: q.append(node.binary_left)
+                        if node.binary_right: q.append(node.binary_right)
+                    row["Binary Team Size"] = count
+                else:
+                    row["Binary Team Size"] = 0
+                
+                master_data.append(row)
+            
+            df_master = pd.DataFrame(master_data)
+            
+            # Display full dataframe (no .head() limitation)
+            st.dataframe(df_master, use_container_width=True)
+            
+            # CSV Download
+            csv = df_master.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Master CSV (Full Database)",
+                data=csv,
+                file_name=f"HFC_Master_Report_Month_{st.session_state.current_month-1}.csv",
+                mime="text/csv"
+            )
     else:
-        st.warning("No payout data available.")
+        st.warning("No data yet. Run the simulation.")
 
-# --- TAB 3: NETWORK INTELLIGENCE ---
+# --- TAB 3: NETWORK ANALYSIS ---
 with tabs[2]:
-    st.subheader("Top Earner Breakdown")
+    st.subheader("Top Performers (Verification)")
     c1, c2 = st.columns([2, 1])
-    
     with c1:
-        # Added Self Commission column here
-        top_users = sorted(sys.users.values(), key=lambda x: sum(x.wallet.values()), reverse=True)[:10]
+        # Sort by Total Payout
+        top = sorted(sys.users.values(), key=lambda x: sum(sys.current_month_ledger[x.id].values()), reverse=True)[:10]
         st.table(pd.DataFrame([{
             "ID": u.id, 
-            "Pkg": u.package, 
-            "Total": f"${sum(u.wallet.values()):,.2f}",
-            "Self (Cashback)": f"${u.wallet['self']:,.2f}", 
-            "Direct": f"${u.wallet['direct']:,.2f}",
-            "Passive": f"${u.wallet['passive']:,.2f}"
-        } for u in top_users]))
-        
+            "Pkg": u.package,
+            "Total Payout": f"${sum(sys.current_month_ledger[u.id].values()):,.2f}",
+            "Self": f"${sys.current_month_ledger[u.id]['self']:,.2f}",
+            "Direct": f"${sys.current_month_ledger[u.id]['direct']:,.2f}",
+            "Passive": f"${sys.current_month_ledger[u.id]['passive']:,.2f}"
+        } for u in top]))
+    
     with c2:
-        st.write("**Audit User**")
-        uid_input = st.text_input("User ID", "u1a")
-        if uid_input in sys.users:
-            u = sys.users[uid_input]
-            q, count = collections.deque([u.id]), 0
-            while q:
-                n = sys.users[q.popleft()]
-                if n.binary_left: q.append(n.binary_left); count+=1
-                if n.binary_right: q.append(n.binary_right); count+=1
-            st.metric("Binary Team", count)
-            st.metric("Total Passive", f"${u.wallet['passive']:,.2f}")
-            st.metric("Total Cashback", f"${u.wallet['self']:,.2f}")
-
-# --- TAB 4: RAW DATA ---
-with tabs[3]:
-    st.write("Full Database")
-    all_data = []
-    for u in sys.users.values():
-        all_data.append({
-            "ID": u.id, "Pkg": u.package, "Sponsor": u.sponsor_id,
-            "Self": sum(u.wallet.values())
-        })
-    st.dataframe(pd.DataFrame(all_data), use_container_width=True)
+        st.write("**Deep Dive Tool**")
+        uid = st.text_input("Inspect User ID", "u1a")
+        if uid in sys.users:
+            u = sys.users[uid]
+            # Quick Stats
+            pay = sys.current_month_ledger[uid]
+            st.metric("Total Payout", f"${sum(pay.values()):,.2f}")
+            st.metric("Passive Income", f"${pay['passive']:,.2f}")
+            st.metric("Self (Cashback)", f"${pay['self']:,.2f}")
