@@ -22,7 +22,6 @@ class CommissionEngine:
 
     @staticmethod
     def run_payouts(platform, transactions):
-        # Reset current month ledger
         platform.current_month_ledger = collections.defaultdict(lambda: {'self':0.0, 'direct':0.0, 'passive':0.0})
         
         # 1. DIRECT & SELF
@@ -50,7 +49,6 @@ class CommissionEngine:
             sales_map[t['buyer_id']] += t['cv']
             
         for uid, user in platform.users.items():
-            # Optimization: Leaf nodes earn 0 passive
             if user.binary_left is None and user.binary_right is None:
                 continue 
             
@@ -89,17 +87,15 @@ class CommissionEngine:
 # ==========================================
 
 class User:
-    def __init__(self, uid, name, package, sponsor_id=None):
+    def __init__(self, uid, name, package, sponsor_id=None, joined_month=1):
         self.id = uid
         self.name = name
         self.package = package
         self.sponsor_id = sponsor_id
+        self.joined_month = joined_month # Tracks Tenure
         self.binary_left = None
         self.binary_right = None
         self.wallet = {'self': 0.0, 'direct': 0.0, 'passive': 0.0}
-        # Caching for report
-        self.cached_team_size = 0
-        self.cached_team_depth = 0
 
 class Platform:
     def __init__(self):
@@ -109,13 +105,14 @@ class Platform:
         self.current_month_ledger = {} 
         self.month_stats = {
             'revenue': 0.0, 'cv_vol': 0.0, 
-            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0
+            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
+            'products_sold': collections.defaultdict(int)
         }
-        self.register_user("AdminRoot", 500, None)
+        self.register_user("AdminRoot", 500, None, joined_month=0)
         
-    def register_user(self, name, package, sponsor_id):
+    def register_user(self, name, package, sponsor_id, joined_month=1):
         uid = f"u{len(self.users) + 1}a"
-        new_user = User(uid, name, package, sponsor_id)
+        new_user = User(uid, name, package, sponsor_id, joined_month)
         self.users[uid] = new_user
         self.user_list.append(uid)
         
@@ -143,17 +140,9 @@ class Platform:
     def reset_month_stats(self):
         self.month_stats = {
             'revenue': 0.0, 'cv_vol': 0.0, 
-            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0
+            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
+            'products_sold': collections.defaultdict(int)
         }
-        
-    def calculate_network_stats(self):
-        """Calculates Team Size for ALL users efficiently (Bottom-Up)"""
-        # We can't do true bottom-up easily without parent links, so we use
-        # a simplified recursive cache approach for the report generation.
-        # Given 15k users, we'll do a specialized iterative pass or just
-        # accept BFS for the active export. 
-        # For MVP stability, we will use a safe BFS per user in the export logic.
-        pass
 
 # ==========================================
 # 🖥️ 3. STREAMLIT APP UI
@@ -204,7 +193,8 @@ if run_sim:
     
     sponsors = random.choices(existing_ids, weights=weights, k=new_members_count)
     for i in range(new_members_count):
-        sys.register_user(f"User", random.choices([100, 250, 500], weights=[25,45,30])[0], sponsors[i])
+        # Register with Current Month
+        sys.register_user(f"User", random.choices([100, 250, 500], weights=[25,45,30])[0], sponsors[i], joined_month=st.session_state.current_month)
 
     # C. TRANSACTIONS
     CATALOG = [
@@ -236,7 +226,7 @@ if run_sim:
     
     process_batch(c1, 1)
     process_batch(c2, 2)
-    process_batch(total_users - curr_idx, 3) # Rest buy 3
+    process_batch(total_users - curr_idx, 3) 
 
     # D. PAYOUTS
     CommissionEngine.run_payouts(sys, transactions)
@@ -252,10 +242,10 @@ if run_sim:
     })
     st.session_state.current_month += 1
 
-# --- VISUALIZATION ---
+# --- VISUALIZATION TABS ---
 st.title("🚀 HFC Ecosystem: Master Dashboard")
 
-tabs = st.tabs(["📊 Profitability", "📥 Master Report & Payouts", "🕸️ Network Analysis"])
+tabs = st.tabs(["📊 Profitability", "📥 Batch Payouts", "🕸️ Network Analysis", "📋 User Database"])
 
 # --- TAB 1: PROFITABILITY ---
 with tabs[0]:
@@ -289,92 +279,74 @@ with tabs[0]:
     else:
         st.info("👈 Run Simulation to begin.")
 
-# --- TAB 2: MASTER REPORT (FIXED) ---
+# --- TAB 2: MASTER REPORT ---
 with tabs[1]:
     st.header("Master Affiliate Report")
-    st.markdown("Download comprehensive data: **Earnings + Downline Stats + Payouts**.")
-    
     if sys.current_month_ledger:
-        with st.spinner("Generating Report (Calculating Team Sizes for all users)..."):
-            # Generate the FULL report
+        with st.spinner("Generating Report..."):
             master_data = []
-            
-            # Helper to count team size (BFS)
-            # For 15k users this might take 2-3 seconds, which is fine for export
             for uid, u in sys.users.items():
-                # Only include active users or those with earnings
                 pay = sys.current_month_ledger.get(uid, {'self':0, 'direct':0, 'passive':0})
-                total_earn = sum(pay.values())
-                
-                # Basic info
-                row = {
+                master_data.append({
                     "User ID": uid,
                     "Name": u.name,
-                    "Package": u.package,
-                    "Sponsor ID": u.sponsor_id,
-                    "Self Comm ($)": round(pay['self'], 2),
-                    "Direct Comm ($)": round(pay['direct'], 2),
-                    "Passive Comm ($)": round(pay['passive'], 2),
-                    "TOTAL PAYOUT ($)": round(total_earn, 2)
-                }
-                
-                # Downline Stats (Only calc if necessary for speed, or calc for top earners)
-                # For the Master File, we want it for everyone.
-                # Simplified BFS for Export
-                if u.binary_left or u.binary_right:
-                    q = collections.deque([u.id])
-                    count = 0
-                    while q:
-                        c_id = q.popleft()
-                        if c_id != u.id: count += 1
-                        node = sys.users[c_id]
-                        if node.binary_left: q.append(node.binary_left)
-                        if node.binary_right: q.append(node.binary_right)
-                    row["Binary Team Size"] = count
-                else:
-                    row["Binary Team Size"] = 0
-                
-                master_data.append(row)
+                    "Self Comm": round(pay['self'], 2),
+                    "Direct Comm": round(pay['direct'], 2),
+                    "Passive Comm": round(pay['passive'], 2),
+                    "TOTAL PAYOUT": round(sum(pay.values()), 2)
+                })
             
             df_master = pd.DataFrame(master_data)
-            
-            # Display full dataframe (no .head() limitation)
             st.dataframe(df_master, use_container_width=True)
-            
-            # CSV Download
             csv = df_master.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Master CSV (Full Database)",
-                data=csv,
-                file_name=f"HFC_Master_Report_Month_{st.session_state.current_month-1}.csv",
-                mime="text/csv"
-            )
-    else:
-        st.warning("No data yet. Run the simulation.")
+            st.download_button("📥 Download Master CSV", csv, "HFC_Payouts.csv", "text/csv")
 
 # --- TAB 3: NETWORK ANALYSIS ---
 with tabs[2]:
-    st.subheader("Top Performers (Verification)")
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        # Sort by Total Payout
-        top = sorted(sys.users.values(), key=lambda x: sum(sys.current_month_ledger[x.id].values()), reverse=True)[:10]
-        st.table(pd.DataFrame([{
-            "ID": u.id, 
-            "Pkg": u.package,
-            "Total Payout": f"${sum(sys.current_month_ledger[u.id].values()):,.2f}",
-            "Self": f"${sys.current_month_ledger[u.id]['self']:,.2f}",
-            "Direct": f"${sys.current_month_ledger[u.id]['direct']:,.2f}",
-            "Passive": f"${sys.current_month_ledger[u.id]['passive']:,.2f}"
-        } for u in top]))
+    st.subheader("Top Performers")
+    top = sorted(sys.users.values(), key=lambda x: sum(sys.current_month_ledger[x.id].values()), reverse=True)[:10]
+    st.table(pd.DataFrame([{
+        "ID": u.id, 
+        "Pkg": u.package,
+        "Total Payout": f"${sum(sys.current_month_ledger[u.id].values()):,.2f}",
+        "Passive": f"${sys.current_month_ledger[u.id]['passive']:,.2f}"
+    } for u in top]))
+
+# --- TAB 4: USER DATABASE (UPDATED) ---
+with tabs[3]:
+    st.header("Comprehensive User Database")
+    st.write("Full membership records including Tenure and Downline Count.")
     
-    with c2:
-        st.write("**Deep Dive Tool**")
-        uid = st.text_input("Inspect User ID", "u1a")
-        if uid in sys.users:
-            u = sys.users[uid]
-            # Quick Stats
-            pay = sys.current_month_ledger[uid]
-            st.metric("Total Payout", f"${sum(pay.values()):,.2f}")
-            st.metric("Passive Income", f"${pay['passive']:,.2f}")
-            st.metric("Self (Cashback)", f"${pay['self']:,.2f}")
+    if sys.users:
+        with st.spinner("Calculating Team Sizes for display..."):
+            db_data = []
+            current_mo = st.session_state.current_month
+            
+            for u in sys.users.values():
+                # On-the-fly BFS for Team Size (Binary)
+                q = collections.deque([u.id])
+                team_size = 0
+                while q:
+                    c = sys.users[q.popleft()]
+                    if c.binary_left: q.append(c.binary_left); team_size+=1
+                    if c.binary_right: q.append(c.binary_right); team_size+=1
+                
+                db_data.append({
+                    "User ID": u.id,
+                    "Package": u.package,
+                    "Sponsor": u.sponsor_id,
+                    "Joined Month": u.joined_month,
+                    "Tenure (Months)": current_mo - u.joined_month,
+                    "Binary Team Size": team_size,
+                    "Lifetime Passive ($)": round(u.wallet['passive'], 2),
+                    "Lifetime Direct ($)": round(u.wallet['direct'], 2)
+                })
+            
+            df_db = pd.DataFrame(db_data)
+            st.dataframe(df_db, use_container_width=True)
+            
+            # Allow download of the full database too
+            csv_db = df_db.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download User DB (CSV)", csv_db, "HFC_User_Database.csv", "text/csv")
+    else:
+        st.info("No users found.")
