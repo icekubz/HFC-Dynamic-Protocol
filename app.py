@@ -4,6 +4,7 @@ import numpy as np
 import random
 import collections
 import altair as alt
+import time
 
 # ==========================================
 # 📘 1. THE HFC-DYNAMIC PROTOCOL ENGINE
@@ -23,29 +24,35 @@ class CommissionEngine:
 
     @staticmethod
     def run_payouts(platform, transactions):
+        # Reset monthly ledger for the batch export
+        platform.current_month_ledger = collections.defaultdict(lambda: {'self':0.0, 'direct':0.0, 'passive':0.0})
+        
         # 1. PRE-CALCULATE DIRECT & SELF
         for t in transactions:
             buyer = platform.users[t['buyer_id']]
             cv = t['cv']
             
             # Self
-            buyer.wallet['self'] += cv * CommissionEngine.COMM_SELF
-            platform.month_stats['self_payout'] += cv * CommissionEngine.COMM_SELF
+            comm_self = cv * CommissionEngine.COMM_SELF
+            buyer.wallet['self'] += comm_self
+            platform.current_month_ledger[buyer.id]['self'] += comm_self
+            platform.month_stats['self_payout'] += comm_self
             
             # Direct
             if buyer.sponsor_id:
                 sponsor = platform.users[buyer.sponsor_id]
-                direct_amt = cv * CommissionEngine.COMM_DIRECT
-                sponsor.wallet['direct'] += direct_amt
-                platform.month_stats['direct_payout'] += direct_amt
+                comm_direct = cv * CommissionEngine.COMM_DIRECT
+                sponsor.wallet['direct'] += comm_direct
+                platform.current_month_ledger[sponsor.id]['direct'] += comm_direct
+                platform.month_stats['direct_payout'] += comm_direct
 
         # 2. PASSIVE CALCULATION (Per User / Top-Down)
         sales_map = collections.defaultdict(float)
         for t in transactions:
             sales_map[t['buyer_id']] += t['cv']
             
+        # Iterate all users
         for uid, user in platform.users.items():
-            # Optimization: Skip if no binary team
             if user.binary_left is None and user.binary_right is None:
                 continue 
             
@@ -77,7 +84,9 @@ class CommissionEngine:
             if team_cv > 0:
                 divisor = max(actual_depth, min_depth)
                 payout = (team_cv * CommissionEngine.COMM_POOL) / divisor
+                
                 user.wallet['passive'] += payout
+                platform.current_month_ledger[user.id]['passive'] += payout
                 platform.month_stats['passive_payout'] += payout
 
 # ==========================================
@@ -99,7 +108,12 @@ class Platform:
         self.users = {}
         self.user_list = []
         self.history = []
-        self.month_stats = {'revenue': 0.0, 'cv_vol': 0.0, 'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0}
+        self.current_month_ledger = {} # For Export
+        self.month_stats = {
+            'revenue': 0.0, 'cv_vol': 0.0, 
+            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
+            'products_sold': collections.defaultdict(int)
+        }
         self.register_user("AdminRoot", 500, None)
         
     def register_user(self, name, package, sponsor_id):
@@ -108,7 +122,6 @@ class Platform:
         self.users[uid] = new_user
         self.user_list.append(uid)
         
-        # PLACEMENT: Strict Sponsor-Relative
         if uid != "u1a":
             start_node = sponsor_id if sponsor_id in self.users else "u1a"
             self._place_in_binary_strict(start_node, uid)
@@ -131,7 +144,11 @@ class Platform:
                 queue.append(curr.binary_right)
 
     def reset_month_stats(self):
-        self.month_stats = {'revenue': 0.0, 'cv_vol': 0.0, 'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0}
+        self.month_stats = {
+            'revenue': 0.0, 'cv_vol': 0.0, 
+            'self_payout': 0.0, 'direct_payout': 0.0, 'passive_payout': 0.0,
+            'products_sold': collections.defaultdict(int)
+        }
 
 # ==========================================
 # 🖥️ 3. STREAMLIT APP UI
@@ -139,7 +156,6 @@ class Platform:
 
 st.set_page_config(page_title="HFC MVP", layout="wide")
 
-# Session State
 if 'sys' not in st.session_state:
     st.session_state.sys = Platform()
     st.session_state.current_month = 1
@@ -147,154 +163,237 @@ if 'sys' not in st.session_state:
 sys = st.session_state.sys
 
 # --- SIDEBAR: CONTROLS ---
-st.sidebar.header(f"🗓️ Month {st.session_state.current_month} Controls")
+st.sidebar.title(f"🗓️ Month {st.session_state.current_month}")
+st.sidebar.markdown("---")
 
 with st.sidebar.form("sim_form"):
     st.subheader("1. New Growth")
-    new_members_count = st.number_input("New Users Joining", value=500, step=100)
-    percent_leaders = st.slider("% Leaders (Heavy Recruiters)", 1, 20, 5)
+    new_members_count = st.number_input("New Users Joining", value=1000, step=100)
+    percent_leaders = st.slider("% Leaders (Power Recruiters)", 1, 20, 5)
 
-    st.subheader("2. Existing User Upgrades")
-    st.info("Simulate users moving to higher tiers")
-    upgrade_pct = st.slider("% of Users Upgrading Package", 0, 50, 5)
+    st.subheader("2. Upgrades")
+    upgrade_pct = st.slider("% Users Upgrading Tier", 0, 50, 5)
 
-    st.subheader("3. Product Mix")
-    st.caption("Distribution of what users buy this month:")
+    st.subheader("3. Purchasing Behavior")
+    st.write("**Product Mix (Randomized)**")
+    # Catalog hidden in logic but controlled here
     buy_0 = st.slider("% Buying Nothing", 0, 100, 20)
     buy_1 = st.slider("% Buying 1 Item", 0, 100, 30)
     buy_2 = st.slider("% Buying 2 Items", 0, 100, 30)
-    buy_3 = max(0, 100 - (buy_0 + buy_1 + buy_2))
-    st.write(f"*Remaining {buy_3}% will buy 3 Items*")
     
-    run_sim = st.form_submit_button("🚀 Run Month Simulation")
+    run_sim = st.form_submit_button("🚀 Run Simulation")
 
-# --- LOGIC ---
+# --- SIMULATION LOGIC ---
 if run_sim:
     sys.reset_month_stats()
     
-    # A. PROCESS UPGRADES
-    upgraded_count = 0
+    # A. UPGRADES
     if upgrade_pct > 0:
-        # Filter upgradable users (100 or 250 pkg)
         candidates = [u for u in sys.users.values() if u.package < 500]
-        num_upgrades = int(len(candidates) * (upgrade_pct/100))
-        if num_upgrades > 0:
-            upgraders = random.sample(candidates, num_upgrades)
-            for u in upgraders:
-                if u.package == 100: u.package = 250
-                elif u.package == 250: u.package = 500
-                upgraded_count += 1
+        num = int(len(candidates) * (upgrade_pct/100))
+        if num > 0:
+            for u in random.sample(candidates, num):
+                u.package = 500 if u.package == 250 else 250
     
-    # B. REGISTER NEW MEMBERS
+    # B. NEW MEMBERS
     existing_ids = sys.user_list
     weights = [1.0] * len(existing_ids)
-    leader_count = int(len(existing_ids) * (percent_leaders/100))
-    leader_indices = random.sample(range(len(existing_ids)), max(1, leader_count))
+    leader_indices = random.sample(range(len(existing_ids)), max(1, int(len(existing_ids)*(percent_leaders/100))))
     for idx in leader_indices: weights[idx] = 50.0 
     
     sponsors = random.choices(existing_ids, weights=weights, k=new_members_count)
     for i in range(new_members_count):
-        sponsor_id = sponsors[i]
-        pkg = random.choices([100, 250, 500], weights=[25, 45, 30])[0]
-        sys.register_user(f"User", pkg, sponsor_id)
+        sys.register_user(f"User", random.choices([100, 250, 500], weights=[25,45,30])[0], sponsors[i])
 
-    # C. TRANSACTIONS (Mixed Products)
-    active_users = list(sys.users.values())
-    transactions = []
-    
-    # Product Catalog (Name, Price, CV)
+    # C. TRANSACTIONS
     CATALOG = [
-        {"price": 20.0, "cv": 8.0},    # E-Book (40% CV)
-        {"price": 100.0, "cv": 5.0},   # Grocery (5% CV)
-        {"price": 150.0, "cv": 45.0},  # Software (30% CV)
-        {"price": 500.0, "cv": 250.0}, # Course (50% CV)
+        {"name": "E-Book", "price": 20.0, "cv": 8.0},    # 40%
+        {"name": "Grocery", "price": 100.0, "cv": 5.0},  # 5%
+        {"name": "Software", "price": 150.0, "cv": 45.0},# 30%
+        {"name": "Course", "price": 500.0, "cv": 250.0}, # 50%
     ]
     
+    active_users = list(sys.users.values())
     random.shuffle(active_users)
     total_users = len(active_users)
-    c0, c1, c2 = int(total_users*(buy_0/100)), int(total_users*(buy_1/100)), int(total_users*(buy_2/100))
+    c1, c2 = int(total_users*(buy_1/100)), int(total_users*(buy_2/100))
+    c3 = total_users - int(total_users*(buy_0/100)) - c1 - c2
     
-    curr = 0
-    curr += c0 # Skip 0 buyers
+    transactions = []
     
-    def gen_trans(count, num_items):
-        nonlocal curr
-        for _ in range(count):
-            if curr < total_users:
-                u = active_users[curr]
-                for _ in range(num_items):
-                    p = random.choice(CATALOG)
-                    transactions.append({'buyer_id': u.id, 'cv': p['cv']})
-                    sys.month_stats['revenue'] += p['price']
-                    sys.month_stats['cv_vol'] += p['cv']
-                curr += 1
+    def add_trans(count, num_items):
+        start = len(transactions) // num_items if num_items > 0 else 0 
+        # Logic simplified: just append transactions
+        pass 
+    
+    # Re-doing simplified transaction loop
+    curr_idx = int(total_users*(buy_0/100)) # Skip 0 buyers
+    
+    for _ in range(c1): 
+        if curr_idx < total_users:
+            u = active_users[curr_idx]; curr_idx+=1
+            p = random.choice(CATALOG)
+            transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+            sys.month_stats['revenue'] += p['price']
+            sys.month_stats['cv_vol'] += p['cv']
+            sys.month_stats['products_sold'][p['name']] += 1
+            
+    for _ in range(c2):
+        if curr_idx < total_users:
+            u = active_users[curr_idx]; curr_idx+=1
+            for _ in range(2):
+                p = random.choice(CATALOG)
+                transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+                sys.month_stats['revenue'] += p['price']
+                sys.month_stats['cv_vol'] += p['cv']
+                sys.month_stats['products_sold'][p['name']] += 1
 
-    gen_trans(c1, 1)
-    gen_trans(c2, 2)
-    gen_trans(total_users - curr, 3)
+    while curr_idx < total_users:
+        u = active_users[curr_idx]; curr_idx+=1
+        for _ in range(3):
+            p = random.choice(CATALOG)
+            transactions.append({'buyer_id': u.id, 'cv': p['cv']})
+            sys.month_stats['revenue'] += p['price']
+            sys.month_stats['cv_vol'] += p['cv']
+            sys.month_stats['products_sold'][p['name']] += 1
 
     # D. PAYOUTS
     CommissionEngine.run_payouts(sys, transactions)
     
     # E. HISTORY
-    total_payout = sys.month_stats['self_payout'] + sys.month_stats['direct_payout'] + sys.month_stats['passive_payout']
+    total_pay = sum([sys.month_stats[k] for k in ['self_payout','direct_payout','passive_payout']])
     sys.history.append({
         "Month": st.session_state.current_month,
         "Members": len(sys.users),
         "Revenue": sys.month_stats['revenue'],
-        "CV Volume": sys.month_stats['cv_vol'],
-        "Payout": total_payout,
-        "Margin": sys.month_stats['cv_vol'] - total_payout,
-        "Upgrades": upgraded_count
+        "Payout": total_pay,
+        "Margin": sys.month_stats['cv_vol'] - total_pay
     })
     st.session_state.current_month += 1
 
-# --- VISUALIZATION ---
-st.title("🚀 HFC Protocol: Trackdesk MVP")
-st.markdown("Live simulation of **Multi-Level Affiliate Logic** with Vendor-defined CV.")
+# --- VISUALIZATION TABS ---
+st.title("🚀 HFC Ecosystem: Trackdesk MVP")
 
-if sys.history:
-    last = sys.history[-1]
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Members", f"{last['Members']:,}", f"+{new_members_count}")
-    c2.metric("Monthly Revenue", f"${last['Revenue']:,.0f}")
-    c3.metric("Platform Margin", f"${last['Margin']:,.0f}")
-    c4.metric("User Upgrades", f"{last['Upgrades']}")
+tabs = st.tabs(["📊 Admin Dashboard (Profitability)", "📥 Batch Payouts (Export)", "🕸️ Network Intelligence", "📋 Full User Data"])
+
+# --- TAB 1: ADMIN PROFITABILITY ---
+with tabs[0]:
+    if sys.history:
+        last = sys.history[-1]
+        
+        # 1. BIG METRICS
+        st.subheader("Financial Performance (Current Month)")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Gross Revenue", f"${last['Revenue']:,.0f}")
+        m2.metric("Total Distributed", f"${last['Payout']:,.0f}", delta=f"{last['Payout']/last['Revenue']*100:.1f}% of Rev")
+        m3.metric("Platform Net Margin", f"${last['Margin']:,.0f}", delta="PROFIT", delta_color="normal")
+        m4.metric("Total Members", f"{len(sys.users):,}")
+        
+        st.divider()
+        
+        # 2. CHARTS
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Profitability Trend")
+            hist_df = pd.DataFrame(sys.history)
+            st.altair_chart(alt.Chart(hist_df.melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_area().encode(
+                x='Month:O', y='Amt:Q', color='Type:N', tooltip=['Month','Amt']
+            ).properties(height=300), use_container_width=True)
+            
+        with c2:
+            st.subheader("Payout Distribution Breakdown")
+            # Donut chart of current month payouts
+            stats = sys.month_stats
+            payout_data = pd.DataFrame([
+                {"Category": "Self (Cashback)", "Amount": stats['self_payout']},
+                {"Category": "Direct (Sponsor)", "Amount": stats['direct_payout']},
+                {"Category": "Passive (HFC Pool)", "Amount": stats['passive_payout']},
+                {"Category": "Company Retained (Breakage)", "Amount": stats['cv_vol'] - (stats['self_payout']+stats['direct_payout']+stats['passive_payout'])}
+            ])
+            st.altair_chart(alt.Chart(payout_data).mark_arc(innerRadius=50).encode(
+                theta='Amount', color='Category', tooltip=['Category', 'Amount']
+            ).properties(height=300), use_container_width=True)
+            
+        # 3. PRODUCT MIX
+        st.subheader("Product Mix Sold")
+        prod_df = pd.DataFrame.from_dict(sys.month_stats['products_sold'], orient='index', columns=['Count']).reset_index()
+        st.bar_chart(prod_df.set_index('index'))
+
+    else:
+        st.info("👈 Run the simulation to see Admin Data.")
+
+# --- TAB 2: EXPORT ---
+with tabs[1]:
+    st.header("Bank Batch File Generator")
+    st.write("Download the Monthly Payout Ledger for all affiliates.")
     
-    # Charts
-    df = pd.DataFrame(sys.history)
-    tab1, tab2 = st.tabs(["Financials", "Network Growth"])
-    with tab1:
-        st.altair_chart(alt.Chart(df.melt('Month', ['Payout', 'Margin'], 'Type', 'Amt')).mark_bar().encode(
-            x='Month:O', y='Amt:Q', color='Type:N', tooltip=['Month','Type','Amt']
-        ).properties(height=300), use_container_width=True)
-    with tab2:
-        st.altair_chart(alt.Chart(df).mark_line(point=True).encode(
-            x='Month:O', y='Members:Q', tooltip=['Month','Members']
-        ).properties(height=300), use_container_width=True)
+    if sys.current_month_ledger:
+        # Convert ledger to DataFrame
+        export_data = []
+        for uid, pay in sys.current_month_ledger.items():
+            if sum(pay.values()) > 0:
+                u = sys.users[uid]
+                export_data.append({
+                    "User ID": uid,
+                    "Name": u.name,
+                    "Bank Account": "****", # Placeholder
+                    "Self Comm": pay['self'],
+                    "Direct Comm": pay['direct'],
+                    "Passive Comm": pay['passive'],
+                    "TOTAL PAYOUT": sum(pay.values())
+                })
+        
+        df_export = pd.DataFrame(export_data)
+        
+        st.success(f"Generated Ledger for {len(df_export)} payees.")
+        st.dataframe(df_export.head())
+        
+        # CSV Download
+        csv = df_export.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Payout File (CSV)",
+            data=csv,
+            file_name=f"payout_month_{st.session_state.current_month-1}.csv",
+            mime="text/csv",
+        )
+    else:
+        st.warning("No payout data available. Run simulation first.")
 
-st.divider()
-st.subheader("🔍 Deep Dive: Network Structure")
-c1, c2 = st.columns([2,1])
-with c1:
-    st.write("Top 10 Earners (Verify 'Whale' Logic)")
-    users = sorted(sys.users.values(), key=lambda x: sum(x.wallet.values()), reverse=True)[:10]
-    st.table(pd.DataFrame([{
-        "ID": u.id, "Pkg": u.package, 
-        "Total": f"${sum(u.wallet.values()):,.0f}", 
-        "Passive": f"${u.wallet['passive']:,.0f}",
-        "Direct": f"${u.wallet['direct']:,.0f}"
-    } for u in users]))
-with c2:
-    st.write("Lookup User Tree")
-    uid = st.text_input("User ID", "u1a")
-    if uid in sys.users:
-        u = sys.users[uid]
-        # Count team
-        q, count = collections.deque([u.id]), 0
-        while q:
-            n = sys.users[q.popleft()]
-            if n.binary_left: q.append(n.binary_left); count+=1
-            if n.binary_right: q.append(n.binary_right); count+=1
-        st.metric("Binary Team Size", count)
-        st.metric("Passive Income", f"${u.wallet['passive']:,.2f}")
+# --- TAB 3: NETWORK INTELLIGENCE ---
+with tabs[2]:
+    st.subheader("Tree Structure Analysis")
+    c1, c2 = st.columns([1, 1])
+    
+    with c1:
+        st.write("**Top 10 Earners (Lifetime)**")
+        top_users = sorted(sys.users.values(), key=lambda x: sum(x.wallet.values()), reverse=True)[:10]
+        st.table(pd.DataFrame([{
+            "ID": u.id, "Pkg": u.package, "Total": f"${sum(u.wallet.values()):,.2f}"
+        } for u in top_users]))
+        
+    with c2:
+        st.write("**User Auditor**")
+        uid_input = st.text_input("Enter User ID to Audit", "u1a")
+        if uid_input in sys.users:
+            u = sys.users[uid_input]
+            # BFS Count
+            q, count = collections.deque([u.id]), 0
+            while q:
+                n = sys.users[q.popleft()]
+                if n.binary_left: q.append(n.binary_left); count+=1
+                if n.binary_right: q.append(n.binary_right); count+=1
+            
+            st.metric("Package", u.package)
+            st.metric("Binary Team Size", count)
+            st.metric("Lifetime Passive Earnings", f"${u.wallet['passive']:,.2f}")
+            
+# --- TAB 4: RAW DATA ---
+with tabs[3]:
+    st.write("Full Database View")
+    all_data = []
+    for u in sys.users.values():
+        all_data.append({
+            "ID": u.id, "Pkg": u.package, "Sponsor": u.sponsor_id,
+            "Wallet Balance": sum(u.wallet.values())
+        })
+    st.dataframe(pd.DataFrame(all_data), use_container_width=True)
