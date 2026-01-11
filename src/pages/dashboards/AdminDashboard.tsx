@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
+import { calculateCompanyProfit } from '../../services/commissionService';
 import Layout from '../../components/Layout';
-import { BarChart3, Users, ShoppingBag, TrendingUp } from 'lucide-react';
+import { BarChart3, Users, ShoppingBag, TrendingUp, DollarSign, Percent } from 'lucide-react';
 import './Dashboard.css';
 
 export default function AdminDashboard() {
@@ -10,6 +11,8 @@ export default function AdminDashboard() {
     totalProducts: 0,
     totalOrders: 0,
     totalRevenue: 0,
+    totalCommissions: 0,
+    companyProfit: 0,
   });
 
   useEffect(() => {
@@ -21,16 +24,20 @@ export default function AdminDashboard() {
       const [users, products, orders] = await Promise.all([
         supabase.from('users').select('id'),
         supabase.from('products').select('id'),
-        supabase.from('orders').select('total_amount'),
+        supabase.from('orders').select('total_amount').eq('payment_status', 'paid'),
       ]);
 
       const revenue = (orders.data || []).reduce((sum, o) => sum + (o.total_amount || 0), 0);
+
+      const profitData = await calculateCompanyProfit();
 
       setStats({
         totalUsers: users.data?.length || 0,
         totalProducts: products.data?.length || 0,
         totalOrders: orders.data?.length || 0,
         totalRevenue: revenue,
+        totalCommissions: profitData.totalCommissionsPaid,
+        companyProfit: profitData.companyProfit,
       });
     } catch (err) {
       console.error('Error fetching stats:', err);
@@ -57,10 +64,22 @@ export default function AdminDashboard() {
       color: 'purple',
     },
     {
-      title: 'Revenue',
+      title: 'Total Revenue',
       value: `$${stats.totalRevenue.toFixed(2)}`,
       icon: <BarChart3 />,
       color: 'orange',
+    },
+    {
+      title: 'Commissions Paid',
+      value: `$${stats.totalCommissions.toFixed(2)}`,
+      icon: <Percent />,
+      color: 'blue',
+    },
+    {
+      title: 'Company Profit',
+      value: `$${stats.companyProfit.toFixed(2)}`,
+      icon: <DollarSign />,
+      color: 'green',
     },
   ];
 

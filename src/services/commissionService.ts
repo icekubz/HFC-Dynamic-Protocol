@@ -1,15 +1,15 @@
 import { supabase } from '../utils/supabase';
 
 export interface CommissionConfig {
-  vendorCommissionPercentage: number;
-  affiliateCommissionPercentage: number;
-  passivePoolPercentage: number;
+  platformCommissionPercentage: number;
+  referrerCommissionPercentage: number;
+  hfcPoolPercentage: number;
 }
 
 const DEFAULT_CONFIG: CommissionConfig = {
-  vendorCommissionPercentage: 10,
-  affiliateCommissionPercentage: 5,
-  passivePoolPercentage: 2,
+  platformCommissionPercentage: 10,
+  referrerCommissionPercentage: 5,
+  hfcPoolPercentage: 5,
 };
 
 export async function calculateAndCreateCommissions(
@@ -19,51 +19,59 @@ export async function calculateAndCreateCommissions(
 ): Promise<void> {
   try {
     for (const item of items) {
-      const vendorCommissionAmount = (item.subtotal * DEFAULT_CONFIG.vendorCommissionPercentage) / 100;
+      const totalSale = item.subtotal;
+      const platformCommission = (totalSale * DEFAULT_CONFIG.platformCommissionPercentage) / 100;
+      const vendorEarnings = totalSale - platformCommission;
 
-      await supabase.from('commissions').insert({
-        user_id: item.vendor_id,
-        order_item_id: item.id,
-        commission_type: 'vendor_sale',
-        amount: vendorCommissionAmount,
-        percentage: DEFAULT_CONFIG.vendorCommissionPercentage,
-        status: 'earned',
-      });
+      let referrerCommission = 0;
+      let hfcPoolAmount = 0;
 
       if (referrerId) {
-        const affiliateCommissionAmount = (item.subtotal * DEFAULT_CONFIG.affiliateCommissionPercentage) / 100;
+        referrerCommission = (totalSale * DEFAULT_CONFIG.referrerCommissionPercentage) / 100;
+        hfcPoolAmount = (totalSale * DEFAULT_CONFIG.hfcPoolPercentage) / 100;
 
         await supabase.from('commissions').insert({
           user_id: referrerId,
           order_item_id: item.id,
           commission_type: 'affiliate_referral',
-          amount: affiliateCommissionAmount,
-          percentage: DEFAULT_CONFIG.affiliateCommissionPercentage,
+          amount: referrerCommission,
+          percentage: DEFAULT_CONFIG.referrerCommissionPercentage,
           status: 'earned',
         });
-      }
 
-      const passivePoolAmount = (item.subtotal * DEFAULT_CONFIG.passivePoolPercentage) / 100;
-      const { data: affiliates } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('role', 'affiliate')
-        .eq('status', 'active');
+        const { data: activeAffiliates } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'affiliate')
+          .eq('status', 'active')
+          .neq('user_id', referrerId);
 
-      if (affiliates && affiliates.length > 0) {
-        const perAffiliateCut = passivePoolAmount / affiliates.length;
+        if (activeAffiliates && activeAffiliates.length > 0) {
+          const perAffiliateShare = hfcPoolAmount / activeAffiliates.length;
 
-        for (const affiliate of affiliates) {
-          await supabase.from('commissions').insert({
-            user_id: affiliate.user_id,
-            order_item_id: item.id,
-            commission_type: 'passive_pool',
-            amount: perAffiliateCut,
-            percentage: DEFAULT_CONFIG.passivePoolPercentage / affiliates.length,
-            status: 'earned',
-          });
+          for (const affiliate of activeAffiliates) {
+            await supabase.from('commissions').insert({
+              user_id: affiliate.user_id,
+              order_item_id: item.id,
+              commission_type: 'passive_pool',
+              amount: perAffiliateShare,
+              percentage: (perAffiliateShare / totalSale) * 100,
+              status: 'earned',
+            });
+          }
         }
       }
+
+      const companyProfit = platformCommission - referrerCommission - hfcPoolAmount;
+
+      console.log('Commission Breakdown:', {
+        totalSale,
+        vendorEarnings,
+        platformCommission,
+        referrerCommission,
+        hfcPoolAmount,
+        companyProfit,
+      });
     }
   } catch (err) {
     console.error('Error calculating commissions:', err);
@@ -112,5 +120,58 @@ export async function getTotalEarnings(userId: string): Promise<number> {
   } catch (err) {
     console.error('Error fetching earnings:', err);
     return 0;
+  }
+}
+
+export async function calculateCompanyProfit(startDate?: Date, endDate?: Date): Promise<{
+  totalSales: number;
+  totalCommissionsPaid: number;
+  companyProfit: number;
+}> {
+  try {
+    let query = supabase
+      .from('orders')
+      .select('total_amount')
+      .eq('payment_status', 'paid');
+
+    if (startDate) {
+      query = query.gte('created_at', startDate.toISOString());
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate.toISOString());
+    }
+
+    const { data: orders } = await query;
+    const totalSales = (orders || []).reduce((sum, o) => sum + (o.total_amount || 0), 0);
+
+    let commQuery = supabase
+      .from('commissions')
+      .select('amount')
+      .in('status', ['earned', 'pending_payout', 'paid']);
+
+    if (startDate) {
+      commQuery = commQuery.gte('created_at', startDate.toISOString());
+    }
+    if (endDate) {
+      commQuery = commQuery.lte('created_at', endDate.toISOString());
+    }
+
+    const { data: commissions } = await commQuery;
+    const totalCommissionsPaid = (commissions || []).reduce((sum, c) => sum + (c.amount || 0), 0);
+
+    const companyProfit = (totalSales * DEFAULT_CONFIG.platformCommissionPercentage / 100) - totalCommissionsPaid;
+
+    return {
+      totalSales,
+      totalCommissionsPaid,
+      companyProfit,
+    };
+  } catch (err) {
+    console.error('Error calculating company profit:', err);
+    return {
+      totalSales: 0,
+      totalCommissionsPaid: 0,
+      companyProfit: 0,
+    };
   }
 }

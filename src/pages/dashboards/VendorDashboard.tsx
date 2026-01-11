@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import Layout from '../../components/Layout';
@@ -7,6 +8,7 @@ import './Dashboard.css';
 
 export default function VendorDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [stats, setStats] = useState({
     totalProducts: 0,
@@ -102,25 +104,25 @@ export default function VendorDashboard() {
         <div className="card">
           <h3>Add New Product</h3>
           <p>Add new products or services to your store</p>
-          <button className="btn btn-primary">+ Add Product</button>
+          <button onClick={() => navigate('/vendor/products')} className="btn btn-primary">+ Add Product</button>
         </div>
 
         <div className="card">
           <h3>Manage Products</h3>
           <p>Edit, delete, or manage your products</p>
-          <button className="btn btn-primary">Manage Products</button>
+          <button onClick={() => navigate('/vendor/products')} className="btn btn-primary">Manage Products</button>
         </div>
 
         <div className="card">
           <h3>Orders</h3>
           <p>View and manage customer orders</p>
-          <button className="btn btn-primary">View Orders</button>
+          <button onClick={() => navigate('/vendor/orders')} className="btn btn-primary">View Orders</button>
         </div>
 
         <div className="card">
           <h3>Earnings & Payouts</h3>
           <p>Track your earnings and request payouts</p>
-          <button className="btn btn-primary">View Earnings</button>
+          <button onClick={() => navigate('/vendor/earnings')} className="btn btn-primary">View Earnings</button>
         </div>
       </div>
     </Layout>

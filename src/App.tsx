@@ -7,6 +7,8 @@ import ConsumerDashboard from './pages/dashboards/ConsumerDashboard';
 import VendorDashboard from './pages/dashboards/VendorDashboard';
 import AffiliateDashboard from './pages/dashboards/AffiliateDashboard';
 import Marketplace from './pages/Marketplace';
+import ProductManagement from './pages/vendor/ProductManagement';
+import AffiliateLinks from './pages/affiliate/AffiliateLinks';
 
 function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: string }) {
   const { isAuthenticated, roles, loading } = useAuth();
@@ -64,7 +66,7 @@ export default function App() {
         />
 
         <Route
-          path="/vendor/*"
+          path="/vendor"
           element={
             <ProtectedRoute requiredRole="vendor">
               <VendorDashboard />
@@ -73,10 +75,28 @@ export default function App() {
         />
 
         <Route
-          path="/affiliate/*"
+          path="/vendor/products"
+          element={
+            <ProtectedRoute requiredRole="vendor">
+              <ProductManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/affiliate"
           element={
             <ProtectedRoute requiredRole="affiliate">
               <AffiliateDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/affiliate/links"
+          element={
+            <ProtectedRoute requiredRole="affiliate">
+              <AffiliateLinks />
             </ProtectedRoute>
           }
         />

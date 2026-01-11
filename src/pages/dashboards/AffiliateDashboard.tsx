@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import Layout from '../../components/Layout';
@@ -7,6 +8,7 @@ import './Dashboard.css';
 
 export default function AffiliateDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalCommissions: 0,
     referrals: 0,
@@ -85,41 +87,35 @@ export default function AffiliateDashboard() {
 
       <div className="dashboard-sections">
         <div className="card">
-          <h3>Your Referral Link</h3>
-          <p>Share this link to earn commissions</p>
-          <div style={{ marginTop: '1rem' }}>
-            <input
-              type="text"
-              value={`https://ecosystem.com/ref/${user?.id}`}
-              readOnly
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                borderRadius: '0.5rem',
-                border: '1px solid #d1d5db',
-                marginBottom: '0.5rem',
-              }}
-            />
-            <button className="btn btn-primary">Copy Link</button>
-          </div>
+          <h3>Generate Affiliate Links</h3>
+          <p>Create unique referral links for any product</p>
+          <button onClick={() => navigate('/affiliate/links')} className="btn btn-primary">
+            Manage Links
+          </button>
         </div>
 
         <div className="card">
           <h3>Commission Structure</h3>
-          <p>Earn 5-15% on each referral sale</p>
-          <button className="btn btn-primary">View Details</button>
+          <p>Earn 5-15% on each referral sale using HFC dynamics</p>
+          <button onClick={() => navigate('/affiliate/commissions')} className="btn btn-primary">
+            View Details
+          </button>
         </div>
 
         <div className="card">
           <h3>Track Referrals</h3>
           <p>Monitor your referral performance</p>
-          <button className="btn btn-primary">View Analytics</button>
+          <button onClick={() => navigate('/affiliate/analytics')} className="btn btn-primary">
+            View Analytics
+          </button>
         </div>
 
         <div className="card">
           <h3>Request Payout</h3>
           <p>Withdraw your earnings</p>
-          <button className="btn btn-secondary">Request Payout</button>
+          <button onClick={() => navigate('/affiliate/payouts')} className="btn btn-secondary">
+            Request Payout
+          </button>
         </div>
       </div>
     </Layout>

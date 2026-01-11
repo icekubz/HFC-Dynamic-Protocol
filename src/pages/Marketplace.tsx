@@ -3,11 +3,20 @@ import { supabase } from '../utils/supabase';
 import { Product } from '../types';
 import Layout from '../components/Layout';
 import Checkout from '../components/Checkout';
-import { ShoppingCart, Loader } from 'lucide-react';
+import { ShoppingCart, Loader, Search, Filter } from 'lucide-react';
 import './Marketplace.css';
+
+interface Category {
+  id: string;
+  name: string;
+}
 
 export default function Marketplace() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<Product[]>([]);
   const [showCart, setShowCart] = useState(false);
@@ -15,13 +24,18 @@ export default function Marketplace() {
 
   useEffect(() => {
     fetchProducts();
+    fetchCategories();
   }, []);
+
+  useEffect(() => {
+    filterProducts();
+  }, [products, selectedCategory, searchTerm]);
 
   const fetchProducts = async () => {
     try {
       const { data, error } = await supabase
         .from('products')
-        .select('*')
+        .select('*, categories(name)')
         .eq('is_active', true);
 
       if (error) throw error;
@@ -31,6 +45,31 @@ export default function Marketplace() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchCategories = async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('*')
+      .order('name');
+    setCategories(data || []);
+  };
+
+  const filterProducts = () => {
+    let filtered = products;
+
+    if (selectedCategory) {
+      filtered = filtered.filter(p => p.category_id === selectedCategory);
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(p =>
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    setFilteredProducts(filtered);
   };
 
   const addToCart = (product: Product) => {
@@ -46,6 +85,16 @@ export default function Marketplace() {
   return (
     <Layout title="Marketplace">
       <div className="marketplace-header">
+        <div className="search-bar">
+          <Search className="search-icon" />
+          <input
+            type="text"
+            placeholder="Search for products..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="search-input"
+          />
+        </div>
         <button
           className="btn btn-primary cart-btn"
           onClick={() => setShowCart(!showCart)}
@@ -56,34 +105,73 @@ export default function Marketplace() {
       </div>
 
       <div className="marketplace-layout">
+        <aside className="filters-sidebar">
+          <h3><Filter size={20} /> Filters</h3>
+          <div className="filter-section">
+            <h4>Categories</h4>
+            <div className="filter-options">
+              <button
+                className={`filter-option ${!selectedCategory ? 'active' : ''}`}
+                onClick={() => setSelectedCategory('')}
+              >
+                All Categories
+              </button>
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  className={`filter-option ${selectedCategory === cat.id ? 'active' : ''}`}
+                  onClick={() => setSelectedCategory(cat.id)}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+
         <div className="products-section">
           {loading ? (
             <div className="loading">
               <Loader className="spinner" />
             </div>
           ) : (
-            <div className="grid cols-3">
-              {products.map((product) => (
-                <div key={product.id} className="product-card">
-                  {product.image_url && (
-                    <img src={product.image_url} alt={product.name} />
-                  )}
-                  <div className="product-info">
-                    <h3>{product.name}</h3>
-                    <p className="product-desc">{product.description}</p>
-                    <div className="product-footer">
-                      <span className="price">${product.price.toFixed(2)}</span>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => addToCart(product)}
-                      >
-                        Add to Cart
-                      </button>
+            <>
+              <div className="products-header">
+                <h2>{filteredProducts.length} Products</h2>
+              </div>
+              <div className="grid cols-3">
+                {filteredProducts.map((product) => (
+                  <div key={product.id} className="product-card">
+                    <div className="product-image">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} />
+                      ) : (
+                        <div className="no-image">No Image</div>
+                      )}
+                    </div>
+                    <div className="product-info">
+                      <h3>{product.name}</h3>
+                      <p className="product-desc">{product.description}</p>
+                      <div className="product-footer">
+                        <span className="price">${product.price.toFixed(2)}</span>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => addToCart(product)}
+                          disabled={product.stock_quantity === 0}
+                        >
+                          {product.stock_quantity === 0 ? 'Out of Stock' : 'Add to Cart'}
+                        </button>
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
+              {filteredProducts.length === 0 && (
+                <div className="no-products">
+                  <p>No products found</p>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
 
