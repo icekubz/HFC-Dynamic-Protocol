@@ -14,6 +14,7 @@ const DEFAULT_CONFIG: CommissionConfig = {
 export async function calculateAndCreateCommissions(
   orderId: string,
   items: any[],
+  buyerId: string,
   referrerId?: string
 ): Promise<void> {
   try {
@@ -32,52 +33,86 @@ export async function calculateAndCreateCommissions(
         status: 'pending',
       });
 
-      if (referrerId) {
-        await updateSalesVolume(referrerId, totalSale);
+      const { data: buyerPosition } = await supabase
+        .from('binary_tree_positions')
+        .select('sponsor_id')
+        .eq('user_id', buyerId)
+        .maybeSingle();
 
-        const uplineChain = await getUplineChain(referrerId, 10);
+      const actualReferrerId = referrerId || buyerPosition?.sponsor_id;
 
-        for (let i = 0; i < uplineChain.length; i++) {
-          const uplineMember = uplineChain[i];
-          const pkg = await getUserPackage(uplineMember.user_id);
+      if (actualReferrerId) {
+        await updateSalesVolume(actualReferrerId, totalSale);
 
-          if (!pkg) continue;
+        const { data: referrerPackage } = await supabase
+          .from('affiliate_subscriptions')
+          .select(`
+            user_id,
+            affiliate_packages (
+              direct_commission_rate,
+              level_2_commission_rate,
+              level_3_commission_rate,
+              max_tree_depth
+            )
+          `)
+          .eq('user_id', actualReferrerId)
+          .eq('status', 'active')
+          .maybeSingle();
 
-          if (i >= pkg.max_tree_depth) break;
+        if (referrerPackage) {
+          const directRate = referrerPackage.affiliate_packages.direct_commission_rate;
+          const directCommission = (totalSale * directRate) / 100;
 
-          let commissionRate = 0;
-          let commissionType: 'direct' | 'level_2' | 'level_3' = 'direct';
+          await supabase.from('commission_transactions').insert({
+            affiliate_id: actualReferrerId,
+            order_id: orderId,
+            commission_type: 'direct',
+            amount: directCommission,
+            level: 1,
+            from_user_id: buyerId,
+            status: 'pending',
+          });
 
-          if (i === 0) {
-            commissionRate = pkg.direct_commission_rate;
-            commissionType = 'direct';
-          } else if (i === 1) {
-            commissionRate = pkg.level_2_commission_rate;
-            commissionType = 'level_2';
-          } else {
-            commissionRate = pkg.level_3_commission_rate;
-            commissionType = 'level_3';
-          }
+          const uplineChain = await getUplineChain(actualReferrerId, 10);
+          const maxDepth = referrerPackage.affiliate_packages.max_tree_depth;
 
-          const commissionAmount = (totalSale * commissionRate) / 100;
+          for (let i = 0; i < Math.min(uplineChain.length, maxDepth - 1); i++) {
+            const uplineMember = uplineChain[i];
+            const uplinePkg = await getUserPackage(uplineMember.user_id);
 
-          if (commissionAmount > 0) {
-            await supabase.from('commission_transactions').insert({
-              affiliate_id: uplineMember.user_id,
-              order_id: orderId,
-              commission_type: commissionType,
-              amount: commissionAmount,
-              level: i + 1,
-              from_user_id: referrerId,
-              status: 'pending',
-            });
+            if (!uplinePkg) continue;
+
+            let commissionRate = 0;
+            let commissionType: 'direct' | 'level_2' | 'level_3' = 'level_2';
+
+            if (i === 0) {
+              commissionRate = uplinePkg.level_2_commission_rate;
+              commissionType = 'level_2';
+            } else {
+              commissionRate = uplinePkg.level_3_commission_rate;
+              commissionType = 'level_3';
+            }
+
+            const commissionAmount = (totalSale * commissionRate) / 100;
+
+            if (commissionAmount > 0) {
+              await supabase.from('commission_transactions').insert({
+                affiliate_id: uplineMember.user_id,
+                order_id: orderId,
+                commission_type: commissionType,
+                amount: commissionAmount,
+                level: i + 2,
+                from_user_id: buyerId,
+                status: 'pending',
+              });
+            }
           }
         }
 
-        const matchingBonus = await calculateMatchingBonus(referrerId);
+        const matchingBonus = await calculateMatchingBonus(actualReferrerId);
         if (matchingBonus > 0) {
           await supabase.from('commission_transactions').insert({
-            affiliate_id: referrerId,
+            affiliate_id: actualReferrerId,
             order_id: orderId,
             commission_type: 'matching_bonus',
             amount: matchingBonus,
@@ -92,7 +127,8 @@ export async function calculateAndCreateCommissions(
         totalSale,
         vendorEarnings,
         platformCommission,
-        binaryTreeCommissions: 'Calculated based on upline chain',
+        directCommission: 'Calculated for direct referrer',
+        levelCommissions: 'Calculated for upline chain',
       });
     }
   } catch (err) {

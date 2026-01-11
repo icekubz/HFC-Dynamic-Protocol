@@ -29,12 +29,16 @@ export default function Checkout({ items, total, onSuccess, onClose }: CheckoutP
     setLoading(true);
 
     try {
+      if (!user?.id) {
+        throw new Error('You must be logged in to make a purchase');
+      }
+
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
-          customer_id: user?.id,
+          buyer_id: user.id,
           total_amount: total,
-          status: 'processing',
+          order_type: 'product_purchase',
           payment_status: 'processing',
         })
         .select('id')
@@ -66,7 +70,6 @@ export default function Checkout({ items, total, onSuccess, onClose }: CheckoutP
         .update({
           stripe_payment_intent_id: client_secret.split('_secret_')[0],
           payment_status: 'paid',
-          status: 'completed',
         })
         .eq('id', orderId);
 
@@ -78,7 +81,7 @@ export default function Checkout({ items, total, onSuccess, onClose }: CheckoutP
         .eq('order_id', orderId);
 
       if (insertedItems) {
-        await calculateAndCreateCommissions(orderId, insertedItems);
+        await calculateAndCreateCommissions(orderId, insertedItems, user.id);
       }
 
       onSuccess();
