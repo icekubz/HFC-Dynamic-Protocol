@@ -1,12 +1,19 @@
-// 🔖 BOOKMARK: AF1-17 (Depth-Based Logic)
+// 🔖 BOOKMARK: HFC Protocol - Depth-Based Commission System
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 
-const supabaseUrl = 'https://mutxndaanbaeqrpehjph.supabase.co'; 
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11dHhuZGFhbmJhZXFycGVoanBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzg5NDAyNCwiZXhwIjoyMDgzNDcwMDI0fQ.mD5q7-wR06mZnT5XHS0fYkg41EJLTnFnM_vs3LQNdxM'; 
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ Missing Supabase credentials in .env file');
+  process.exit(1);
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 app.use(cors());
@@ -248,4 +255,8 @@ app.get('/api/products', async (req, res) => { const { data } = await supabase.f
 app.get('/api/packages', async (req, res) => { const { data } = await supabase.from('packages').select('*').order('price'); res.json(data || []); });
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(3000, () => console.log('🚀 SERVER 17 (CORRECT LOGIC) READY'));
+app.get('/admin.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 HFC PROTOCOL SERVER READY on port ${PORT}`));
