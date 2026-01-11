@@ -27,6 +27,7 @@
 
         <div class="nav-item active" id="nav-overview" onclick="switchTab('overview')"><i class="fa-solid fa-chart-line"></i> Profitability</div>
         <div class="nav-item" id="nav-database" onclick="switchTab('database')"><i class="fa-solid fa-users"></i> User Database</div>
+        <div class="nav-item" id="nav-payouts" onclick="switchTab('payouts')"><i class="fa-solid fa-money-bill-wave"></i> Payout History</div>
         <div class="nav-item" id="nav-controls" onclick="switchTab('controls')"><i class="fa-solid fa-sliders"></i> Master Controls</div>
 
         <div class="mt-auto">
@@ -83,8 +84,65 @@
             </div>
         </div>
 
+        <div id="payouts" class="section">
+            <div class="table-card">
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>Monthly Payout History</h4>
+                    <button class="btn btn-outline-dark btn-sm" onclick="loadPayoutHistory()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>User Email</th>
+                                <th>Period</th>
+                                <th>Self Commission</th>
+                                <th>Direct Commission</th>
+                                <th>Passive Commission</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payoutHistoryTable">
+                            <tr><td colspan="7" class="text-center py-4">Loading Data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div id="controls" class="section">
             <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="table-card">
+                        <h5>👤 Create User</h5>
+                        <hr>
+                        <div class="row g-2">
+                            <div class="col-12"><input id="new_email" class="form-control" placeholder="Email Address"></div>
+                            <div class="col-12"><input id="new_password" type="password" class="form-control" placeholder="Password"></div>
+                            <div class="col-12"><input id="new_sponsor" class="form-control" placeholder="Sponsor Email (Optional)"></div>
+                            <div class="col-12">
+                                <select id="new_package" class="form-select">
+                                    <option value="">Select Package (if Affiliate)</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="new_vendor">
+                                    <label class="form-check-label" for="new_vendor">Vendor</label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="new_affiliate">
+                                    <label class="form-check-label" for="new_affiliate">Affiliate</label>
+                                </div>
+                            </div>
+                            <div class="col-12"><input id="new_vendor_name" class="form-control d-none" placeholder="Vendor Name"></div>
+                            <div class="col-12"><button class="btn btn-success w-100" onclick="createUser()">Create User</button></div>
+                        </div>
+                    </div>
+                </div>
                 <div class="col-md-6">
                     <div class="table-card">
                         <h5>📦 Create Package</h5>
@@ -94,7 +152,7 @@
                             <div class="col-6"><input id="pkg_price" class="form-control" placeholder="Price"></div>
                             <div class="col-6"><input id="pkg_cv" class="form-control" placeholder="CV"></div>
                             <div class="col-12"><input id="pkg_depth" class="form-control" placeholder="Max Depth"></div>
-                            <div class="col-12"><button class="btn btn-dark w-100" onclick="createPackage()">Create</button></div>
+                            <div class="col-12"><button class="btn btn-dark w-100" onclick="createPackage()">Create Package</button></div>
                         </div>
                     </div>
                 </div>
@@ -169,10 +227,100 @@
             const body = { name: document.getElementById('pkg_name').value, price: document.getElementById('pkg_price').value, cv: document.getElementById('pkg_cv').value, depth: document.getElementById('pkg_depth').value };
             await fetch('/api/admin/create-package', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
             alert("Package Created");
+            await loadPackagesDropdown();
         }
+
+        async function loadPayoutHistory() {
+            const res = await fetch('/api/admin/payout-history?t=' + Date.now());
+            const data = await res.json();
+            const tbody = document.getElementById('payoutHistoryTable');
+            tbody.innerHTML = '';
+
+            if(data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No payout history yet. Run a monthly batch to generate payouts.</td></tr>';
+                return;
+            }
+
+            data.forEach(p => {
+                const date = new Date(p.created_at).toLocaleDateString();
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${date}</td>
+                        <td class="fw-bold">${p.profiles?.email || 'Unknown'}</td>
+                        <td><span class="badge bg-primary">${p.period || 'N/A'}</span></td>
+                        <td>$${parseFloat(p.self_commission || 0).toFixed(2)}</td>
+                        <td>$${parseFloat(p.direct_commission || 0).toFixed(2)}</td>
+                        <td class="text-primary fw-bold">$${parseFloat(p.passive_commission || 0).toFixed(2)}</td>
+                        <td class="fw-bold text-success">$${parseFloat(p.amount || 0).toFixed(2)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadPackagesDropdown() {
+            const res = await fetch('/api/packages');
+            const packages = await res.json();
+            const select = document.getElementById('new_package');
+            select.innerHTML = '<option value="">Select Package (if Affiliate)</option>';
+            packages.forEach(p => {
+                select.innerHTML += `<option value="${p.id}">${p.name} - $${p.price}</option>`;
+            });
+        }
+
+        async function createUser() {
+            const email = document.getElementById('new_email').value;
+            const password = document.getElementById('new_password').value;
+            const sponsorEmail = document.getElementById('new_sponsor').value;
+            const asVendor = document.getElementById('new_vendor').checked;
+            const asAffiliate = document.getElementById('new_affiliate').checked;
+            const packageId = document.getElementById('new_package').value;
+            const vendorName = document.getElementById('new_vendor_name').value;
+
+            if(!email || !password) {
+                alert("Email and password are required");
+                return;
+            }
+
+            const body = {
+                email,
+                password,
+                sponsorEmail: sponsorEmail || null,
+                asVendor,
+                asAffiliate,
+                packageId: asAffiliate ? packageId : null,
+                vendorName: asVendor ? vendorName : null
+            };
+
+            const res = await fetch('/api/admin/create-user', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+
+            const data = await res.json();
+            if(data.success) {
+                alert("User created successfully!");
+                document.getElementById('new_email').value = '';
+                document.getElementById('new_password').value = '';
+                document.getElementById('new_sponsor').value = '';
+                document.getElementById('new_vendor').checked = false;
+                document.getElementById('new_affiliate').checked = false;
+                document.getElementById('new_vendor_name').value = '';
+                await loadStats();
+                await loadReport();
+            } else {
+                alert("Error: " + data.message);
+            }
+        }
+
+        document.getElementById('new_vendor').onchange = (e) => {
+            document.getElementById('new_vendor_name').classList.toggle('d-none', !e.target.checked);
+        };
 
         loadStats();
         loadReport();
+        loadPayoutHistory();
+        loadPackagesDropdown();
     </script>
 </body>
 </html>

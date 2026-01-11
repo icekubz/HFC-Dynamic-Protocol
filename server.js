@@ -151,6 +151,19 @@ async function runCycleBatch(period) {
                 balance_passive: p.passive,
                 total_earnings: (p.self + p.direct + p.passive)
             }).eq('user_id', uid);
+
+            // Save payout history record
+            await supabase.from('payout_history').insert({
+                user_id: uid,
+                amount: p.self + p.direct + p.passive,
+                self_commission: p.self,
+                direct_commission: p.direct,
+                passive_commission: p.passive,
+                period: period,
+                type: 'monthly_commission',
+                status: 'completed'
+            });
+
             count++;
         }
     }
@@ -249,10 +262,96 @@ app.get('/api/user-data/:userId', async (req, res) => {
     const { data: w } = await supabase.from('wallets').select('*').eq('user_id', userId).single();
     const { count: d } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('sponsor_id', userId);
     const { data: ord } = await supabase.from('orders').select('*, products(name)').eq('buyer_id', userId).order('created_at', {ascending:false});
-    res.json({ profile: p, wallet: w || {}, orders: ord || [], team: { directs: d||0 } });
+
+    // Calculate left and right team members
+    const { data: tree } = await supabase.from('binary_tree').select('*');
+    const countTeamMembers = (nodeId, targetPosition) => {
+        if (!tree) return 0;
+
+        // Find direct child in target position
+        const child = tree.find(t => t.upline_id === nodeId && t.position === targetPosition);
+        if (!child) return 0;
+
+        // Count all descendants of this child
+        let count = 1; // Count the direct child
+        const countDescendants = (parentId) => {
+            const children = tree.filter(t => t.upline_id === parentId);
+            children.forEach(c => {
+                count++;
+                countDescendants(c.user_id);
+            });
+        };
+        countDescendants(child.user_id);
+        return count;
+    };
+
+    const leftTeam = countTeamMembers(userId, 'left');
+    const rightTeam = countTeamMembers(userId, 'right');
+
+    res.json({
+        profile: p,
+        wallet: w || {},
+        orders: ord || [],
+        team: { directs: d||0, left: leftTeam, right: rightTeam }
+    });
 });
 app.get('/api/products', async (req, res) => { const { data } = await supabase.from('products').select('*'); res.json(data || []); });
 app.get('/api/packages', async (req, res) => { const { data } = await supabase.from('packages').select('*').order('price'); res.json(data || []); });
+
+// Get payout history for admin
+app.get('/api/admin/payout-history', async (req, res) => {
+    const { data } = await supabase.from('payout_history')
+        .select('*, profiles!user_id(email)')
+        .order('created_at', { ascending: false });
+    res.json(data || []);
+});
+
+// Admin create user
+app.post('/api/admin/create-user', async (req, res) => {
+    const { email, password, sponsorEmail, asVendor, vendorName, asAffiliate, packageId } = req.body;
+    const { data: auth, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true });
+    if (error) return res.status(400).json({ success: false, message: error.message });
+
+    const uid = auth.user.id;
+    let roles = ["consumer"];
+    if(asVendor) roles.push("vendor");
+    if(asAffiliate) roles.push("affiliate");
+
+    let finalSponsor = null;
+    if(sponsorEmail) {
+        const { data: s } = await supabase.from('profiles').select('id').eq('email', sponsorEmail).single();
+        if(s) finalSponsor = s.id;
+    }
+
+    await supabase.from('profiles').insert({
+        id: uid,
+        email,
+        roles,
+        vendor_name: asVendor ? vendorName : null,
+        sponsor_id: finalSponsor,
+        current_package_id: asAffiliate ? packageId : null
+    });
+
+    await supabase.from('wallets').insert({ user_id: uid });
+    await supabase.rpc('place_affiliate', { new_user_id: uid, sponsor_id: finalSponsor });
+
+    // If activating package, create order
+    if(asAffiliate && packageId) {
+        const { data: pkg } = await supabase.from('packages').select('*').eq('id', packageId).single();
+        if(pkg) {
+            await supabase.from('orders').insert({
+                buyer_id: uid,
+                package_id: packageId,
+                amount: pkg.price,
+                cv_snapshot: pkg.cv_value,
+                type: 'package',
+                period: new Date().toISOString().slice(0, 7)
+            });
+        }
+    }
+
+    res.json({ success: true, userId: uid });
+});
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/admin.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
