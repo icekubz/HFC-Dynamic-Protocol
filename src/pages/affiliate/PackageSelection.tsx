@@ -7,7 +7,7 @@ import { Check, Zap } from 'lucide-react';
 import './PackageSelection.css';
 
 export default function PackageSelection() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [packages, setPackages] = useState<AffiliatePackage[]>([]);
   const [currentPackage, setCurrentPackage] = useState<AffiliatePackage | null>(null);
@@ -15,14 +15,18 @@ export default function PackageSelection() {
   const [subscribing, setSubscribing] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!authLoading && user) {
+      loadData();
+    }
+  }, [authLoading, user]);
 
   const loadData = async () => {
+    if (!user?.id) return;
+
     try {
       const [allPackages, userPackage] = await Promise.all([
         getAllPackages(),
-        getUserPackage(user?.id || ''),
+        getUserPackage(user.id),
       ]);
 
       setPackages(allPackages);

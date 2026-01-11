@@ -30,15 +30,17 @@ export default function AffiliateDashboard() {
   }, [user?.id]);
 
   const fetchData = async () => {
+    if (!user?.id) return;
+
     try {
       const [commissionData, treePosition, downlineCount, userPackage] = await Promise.all([
         supabase
           .from('commission_transactions')
           .select('amount, status')
-          .eq('affiliate_id', user?.id),
-        getUserTreePosition(user?.id || ''),
-        getDownlineCount(user?.id || ''),
-        getUserPackage(user?.id || ''),
+          .eq('affiliate_id', user.id),
+        getUserTreePosition(user.id),
+        getDownlineCount(user.id),
+        getUserPackage(user.id),
       ]);
 
       const totalCommissions = commissionData.data?.length || 0;
