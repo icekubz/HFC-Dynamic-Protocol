@@ -53,7 +53,14 @@ export default function Register() {
           return;
         }
 
-        const rolesData = roles.map(role => ({
+        const { count: userCount } = await supabase
+          .from('users')
+          .select('*', { count: 'exact', head: true });
+
+        const isFirstUser = userCount === 1;
+        const userRoles = isFirstUser ? [...roles, 'admin'] : roles;
+
+        const rolesData = userRoles.map(role => ({
           user_id: authData.user.id,
           role,
           status: 'active',
