@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard | Thy Essential</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
+        
+        /* SIDEBAR STYLES */
+        .sidebar { height: 100vh; background: #0f172a; color: #94a3b8; position: fixed; width: 250px; padding-top: 20px; z-index: 1000; }
+        .sidebar .nav-link { color: inherit; padding: 15px 25px; cursor: pointer; transition: 0.2s; display: block; text-decoration: none; }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #1e293b; color: #fbbf24; border-right: 4px solid #fbbf24; }
+        .sidebar i { width: 25px; text-align: center; }
+
+        .main-content { margin-left: 250px; padding: 30px; }
+        
+        /* TAB CONTENT (Hidden by default) */
+        .section { display: none; animation: fadeIn 0.3s; }
+        .section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .stat-card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .pkg-card { border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center; transition: 0.3s; background: white; }
+        .pkg-card:hover { transform: translateY(-5px); border-color: #fbbf24; }
+        .product-card { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: 0.3s; }
+        .product-card:hover { transform: translateY(-5px); }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h4 class="text-center fw-bold mb-5 text-white"><i class="fa-solid fa-cube text-warning"></i> THY ESSENTIAL</h4>
+        
+        <div class="nav flex-column">
+            <a onclick="switchTab('overview')" class="nav-link active" id="nav-overview">
+                <i class="fa-solid fa-gauge"></i> Overview
+            </a>
+            <a onclick="switchTab('membership')" class="nav-link" id="nav-membership">
+                <i class="fa-solid fa-id-card"></i> Membership
+            </a>
+            <a onclick="switchTab('market')" class="nav-link" id="nav-market">
+                <i class="fa-solid fa-shop"></i> Marketplace
+            </a>
+            <a onclick="switchTab('vendor')" class="nav-link d-none" id="nav-vendor">
+                <i class="fa-solid fa-store"></i> Vendor Console
+            </a>
+            <a onclick="switchTab('wallet')" class="nav-link" id="nav-wallet">
+                <i class="fa-solid fa-wallet"></i> My Wallet
+            </a>
+            <a onclick="switchTab('network')" class="nav-link" id="nav-network">
+                <i class="fa-solid fa-sitemap"></i> Network Tree
+            </a>
+        </div>
+
+        <div class="mt-auto p-4">
+            <button onclick="logout()" class="btn btn-outline-danger w-100 btn-sm">Log Out</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 id="pageTitle" class="fw-bold">Dashboard</h2>
+            <button id="adminBtn" class="btn btn-warning d-none" onclick="location.href='admin.html'">Admin Panel</button>
+        </div>
+
+        <div id="overview" class="section active">
+            <div class="row g-4">
+                <div class="col-md-12">
+                    <div class="stat-card bg-primary text-white">
+                        <h3>Welcome, <span id="userName">User</span></h3>
+                        <p class="mb-0">Current Rank: <strong id="userRank" class="text-warning">...</strong></p>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-4 mt-1">
+                <div class="col-md-4"><div class="stat-card"><h5>Total Earnings</h5><h2 class="text-success" id="ov_earnings">$0.00</h2></div></div>
+                <div class="col-md-4"><div class="stat-card"><h5>Direct Team</h5><h2 class="text-primary" id="ov_directs">0</h2></div></div>
+            </div>
+        </div>
+
+        <div id="membership" class="section">
+            <div class="stat-card">
+                <h4>Available Packages</h4>
+                <p class="text-muted">Activate a package to become an Affiliate and earn commissions.</p>
+                <div class="row g-4 mt-2" id="packageGrid">Loading Packages...</div>
+            </div>
+        </div>
+
+        <div id="market" class="section">
+            <h4>Live Marketplace</h4>
+            <div class="row g-4" id="productGrid">Loading Products...</div>
+        </div>
+
+        <div id="vendor" class="section">
+            <div class="stat-card border-warning">
+                <h4><i class="fa-solid fa-store"></i> Vendor Console</h4>
+                <hr>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Product Name</label>
+                        <input id="vp_name" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Price ($)</label>
+                        <input id="vp_price" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">CV Value</label>
+                        <input id="vp_cv" class="form-control">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description</label>
+                        <input id="vp_desc" class="form-control">
+                    </div>
+                    <div class="col-12">
+                        <button class="btn btn-dark w-100" onclick="listProduct()">List Product</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="wallet" class="section">
+            <div class="stat-card">
+                <h4>My Wallet</h4>
+                <h1 class="text-success fw-bold my-4" id="w_total_big">$0.00</h1>
+                <table class="table">
+                    <tr><td>Self Cashback:</td><td class="text-end fw-bold" id="w_self">$0.00</td></tr>
+                    <tr><td>Direct Commission:</td><td class="text-end fw-bold" id="w_direct">$0.00</td></tr>
+                    <tr><td>Passive Pool:</td><td class="text-end fw-bold" id="w_passive">$0.00</td></tr>
+                </table>
+            </div>
+        </div>
+
+        <div id="network" class="section">
+            <div class="stat-card">
+                <h4>Binary Tree Network</h4>
+                <p class="text-muted">Your network structure and team distribution</p>
+                <div class="row text-center mt-4">
+                    <div class="col-4">
+                        <div class="p-3 bg-light rounded">
+                            <h5 class="text-muted mb-2">Direct Referrals</h5>
+                            <h2 class="text-primary fw-bold" id="n_direct">0</h2>
+                            <small class="text-muted">Your direct sponsors</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-3 bg-light rounded">
+                            <h5 class="text-muted mb-2">Left Team</h5>
+                            <h2 class="text-success fw-bold" id="n_left">0</h2>
+                            <small class="text-muted">Members in left branch</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-3 bg-light rounded">
+                            <h5 class="text-muted mb-2">Right Team</h5>
+                            <h2 class="text-warning fw-bold" id="n_right">0</h2>
+                            <small class="text-muted">Members in right branch</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const userId = localStorage.getItem('userId');
+        if(!userId) window.location.href = 'index.html';
+
+        // --- TAB SWITCHER LOGIC ---
+        function switchTab(tabId) {
+            // 1. Hide all sections
+            document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+            // 2. Show target section
+            document.getElementById(tabId).classList.add('active');
+            
+            // 3. Update Sidebar Highlights
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+            document.getElementById('nav-' + tabId).classList.add('active');
+        }
+
+        // --- DATA LOADER ---
+        async function loadData() {
+            try {
+                const res = await fetch(`/api/user-data/${userId}`);
+                const data = await res.json();
+                
+                if(data.error) {
+                    console.error(data.error);
+                    return; // Stop if error
+                }
+
+                // Profile
+                document.getElementById('userName').innerText = data.profile.email.split('@')[0];
+                document.getElementById('userRank').innerText = data.profile.packages?.name || "Consumer";
+                
+                // Roles
+                if(data.profile.roles.includes('admin')) document.getElementById('adminBtn').classList.remove('d-none');
+                if(data.profile.roles.includes('vendor')) document.getElementById('nav-vendor').classList.remove('d-none');
+
+                // Wallet
+                const total = parseFloat(data.wallet.total_earnings || 0).toFixed(2);
+                document.getElementById('ov_earnings').innerText = "$" + total;
+                document.getElementById('w_total_big').innerText = "$" + total;
+                document.getElementById('w_self').innerText = "$" + (data.wallet.balance_self||0).toFixed(2);
+                document.getElementById('w_direct').innerText = "$" + (data.wallet.balance_direct||0).toFixed(2);
+                document.getElementById('w_passive').innerText = "$" + (data.wallet.balance_passive||0).toFixed(2);
+
+                // Team
+                document.getElementById('ov_directs').innerText = data.team.directs;
+                document.getElementById('n_direct').innerText = data.team.directs;
+                document.getElementById('n_left').innerText = data.team.left;
+                document.getElementById('n_right').innerText = data.team.right;
+
+                // Load Grids
+                loadPackages(data.profile.current_package_id);
+                loadProducts();
+
+            } catch(e) { console.error("Load Error:", e); }
+        }
+
+        async function loadPackages(currentId) {
+            const res = await fetch('/api/packages');
+            const pkgs = await res.json();
+            const grid = document.getElementById('packageGrid');
+            grid.innerHTML = '';
+            pkgs.forEach(p => {
+                const isActive = p.id === currentId;
+                grid.innerHTML += `
+                    <div class="col-md-4">
+                        <div class="pkg-card ${isActive ? 'border-success' : ''}">
+                            <h5>${p.name}</h5>
+                            <h3>$${p.price}</h3>
+                            <button class="btn ${isActive ? 'btn-success' : 'btn-primary'} w-100 mt-2" 
+                                onclick="${isActive ? '' : `activate('${p.id}')`}" ${isActive ? 'disabled' : ''}>
+                                ${isActive ? 'Active Plan' : 'Activate'}
+                            </button>
+                        </div>
+                    </div>`;
+            });
+        }
+
+        async function loadProducts() {
+            const res = await fetch('/api/products');
+            const products = await res.json();
+            const grid = document.getElementById('productGrid');
+            grid.innerHTML = '';
+            if(products.length === 0) grid.innerHTML = '<div class="col-12 text-muted">No products found.</div>';
+            products.forEach(p => {
+                grid.innerHTML += `
+                    <div class="col-md-4">
+                        <div class="product-card p-3">
+                            <h5 class="fw-bold">${p.name}</h5>
+                            <p class="text-muted small">${p.description || 'No description'}</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h4 class="mb-0">$${p.final_price}</h4>
+                                <button class="btn btn-sm btn-outline-primary" onclick="buy('${p.id}', ${p.final_price})">Buy Now</button>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+        }
+
+        // --- ACTIONS ---
+        async function activate(pkgId) {
+            if(!confirm("Activate this package?")) return;
+            const res = await fetch('/api/activate-package', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({ userId, packageId: pkgId })
+            });
+            const data = await res.json();
+            alert(data.message);
+            location.reload();
+        }
+
+        async function buy(pid, amount) {
+            if(!confirm("Confirm Purchase?")) return;
+            const res = await fetch('/api/buy', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({ userId, productId: pid, amount })
+            });
+            const data = await res.json();
+            alert(data.message);
+            loadData(); // Refresh numbers
+        }
+
+        async function listProduct() {
+            const body = {
+                vendorId: userId,
+                name: document.getElementById('vp_name').value,
+                price: document.getElementById('vp_price').value,
+                cv: document.getElementById('vp_cv').value,
+                desc: document.getElementById('vp_desc').value
+            };
+            const res = await fetch('/api/vendor/create-product', {
+                method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+            });
+            const data = await res.json();
+            alert(data.message);
+            loadProducts();
+            switchTab('market'); // Switch to market to see it
+        }
+
+        function logout() { localStorage.clear(); location.href='index.html'; }
+
+        // Start
+        loadData();
+    </script>
+</body>
+</html>
