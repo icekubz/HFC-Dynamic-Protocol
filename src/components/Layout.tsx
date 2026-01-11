@@ -21,13 +21,24 @@ export default function Layout({ children, title, sidebarLinks = [] }: LayoutPro
     navigate('/login');
   };
 
-  const defaultLinks = [
-    { label: 'Marketplace', href: '/marketplace', icon: <ShoppingBag /> },
-    roles.includes('admin') && { label: 'Admin', href: '/admin', icon: <BarChart3 /> },
-    roles.includes('vendor') && { label: 'Vendor', href: '/vendor', icon: <ShoppingBag /> },
-    roles.includes('affiliate') && { label: 'Affiliate', href: '/affiliate', icon: <Users /> },
-    roles.includes('consumer') && { label: 'Account', href: '/consumer', icon: <User /> },
-  ].filter(Boolean) as any[];
+  const defaultLinks = [];
+
+  // Always show marketplace
+  defaultLinks.push({ label: 'Marketplace', href: '/marketplace', icon: <ShoppingBag /> });
+
+  // Add role-specific links
+  if (roles.includes('admin')) {
+    defaultLinks.push({ label: 'Admin', href: '/admin', icon: <BarChart3 /> });
+  }
+  if (roles.includes('vendor')) {
+    defaultLinks.push({ label: 'Vendor', href: '/vendor', icon: <ShoppingBag /> });
+  }
+  if (roles.includes('affiliate')) {
+    defaultLinks.push({ label: 'Affiliate', href: '/affiliate', icon: <Users /> });
+  }
+  if (roles.includes('consumer')) {
+    defaultLinks.push({ label: 'Account', href: '/consumer', icon: <User /> });
+  }
 
   const allLinks = sidebarLinks.length > 0 ? sidebarLinks : defaultLinks;
 
@@ -46,11 +57,11 @@ export default function Layout({ children, title, sidebarLinks = [] }: LayoutPro
             <div className="user-info">
               <span className="user-name">{user?.full_name || user?.email}</span>
               <div className="user-roles">
-                {roles.map((role) => (
+                {roles.length > 0 ? roles.map((role) => (
                   <span key={role} className={`role-badge role-${role}`}>
                     {role}
                   </span>
-                ))}
+                )) : <span className="role-badge">Loading roles...</span>}
               </div>
             </div>
             <button onClick={handleLogout} className="btn-logout" title="Logout">

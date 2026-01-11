@@ -1,15 +1,14 @@
 import { supabase } from '../utils/supabase';
+import { getUplineChain, getUserPackage, updateSalesVolume, calculateMatchingBonus } from './binaryTreeService';
 
 export interface CommissionConfig {
   platformCommissionPercentage: number;
-  referrerCommissionPercentage: number;
-  hfcPoolPercentage: number;
+  vendorCommissionPercentage: number;
 }
 
 const DEFAULT_CONFIG: CommissionConfig = {
   platformCommissionPercentage: 10,
-  referrerCommissionPercentage: 5,
-  hfcPoolPercentage: 5,
+  vendorCommissionPercentage: 90,
 };
 
 export async function calculateAndCreateCommissions(
@@ -23,54 +22,77 @@ export async function calculateAndCreateCommissions(
       const platformCommission = (totalSale * DEFAULT_CONFIG.platformCommissionPercentage) / 100;
       const vendorEarnings = totalSale - platformCommission;
 
-      let referrerCommission = 0;
-      let hfcPoolAmount = 0;
+      await supabase.from('commission_transactions').insert({
+        affiliate_id: item.vendor_id,
+        order_id: orderId,
+        commission_type: 'vendor',
+        amount: vendorEarnings,
+        level: 0,
+        from_user_id: null,
+        status: 'pending',
+      });
 
       if (referrerId) {
-        referrerCommission = (totalSale * DEFAULT_CONFIG.referrerCommissionPercentage) / 100;
-        hfcPoolAmount = (totalSale * DEFAULT_CONFIG.hfcPoolPercentage) / 100;
+        await updateSalesVolume(referrerId, totalSale);
 
-        await supabase.from('commissions').insert({
-          user_id: referrerId,
-          order_item_id: item.id,
-          commission_type: 'affiliate_referral',
-          amount: referrerCommission,
-          percentage: DEFAULT_CONFIG.referrerCommissionPercentage,
-          status: 'earned',
-        });
+        const uplineChain = await getUplineChain(referrerId, 10);
 
-        const { data: activeAffiliates } = await supabase
-          .from('user_roles')
-          .select('user_id')
-          .eq('role', 'affiliate')
-          .eq('status', 'active')
-          .neq('user_id', referrerId);
+        for (let i = 0; i < uplineChain.length; i++) {
+          const uplineMember = uplineChain[i];
+          const pkg = await getUserPackage(uplineMember.user_id);
 
-        if (activeAffiliates && activeAffiliates.length > 0) {
-          const perAffiliateShare = hfcPoolAmount / activeAffiliates.length;
+          if (!pkg) continue;
 
-          for (const affiliate of activeAffiliates) {
-            await supabase.from('commissions').insert({
-              user_id: affiliate.user_id,
-              order_item_id: item.id,
-              commission_type: 'passive_pool',
-              amount: perAffiliateShare,
-              percentage: (perAffiliateShare / totalSale) * 100,
-              status: 'earned',
+          if (i >= pkg.max_tree_depth) break;
+
+          let commissionRate = 0;
+          let commissionType: 'direct' | 'level_2' | 'level_3' = 'direct';
+
+          if (i === 0) {
+            commissionRate = pkg.direct_commission_rate;
+            commissionType = 'direct';
+          } else if (i === 1) {
+            commissionRate = pkg.level_2_commission_rate;
+            commissionType = 'level_2';
+          } else {
+            commissionRate = pkg.level_3_commission_rate;
+            commissionType = 'level_3';
+          }
+
+          const commissionAmount = (totalSale * commissionRate) / 100;
+
+          if (commissionAmount > 0) {
+            await supabase.from('commission_transactions').insert({
+              affiliate_id: uplineMember.user_id,
+              order_id: orderId,
+              commission_type: commissionType,
+              amount: commissionAmount,
+              level: i + 1,
+              from_user_id: referrerId,
+              status: 'pending',
             });
           }
         }
-      }
 
-      const companyProfit = platformCommission - referrerCommission - hfcPoolAmount;
+        const matchingBonus = await calculateMatchingBonus(referrerId);
+        if (matchingBonus > 0) {
+          await supabase.from('commission_transactions').insert({
+            affiliate_id: referrerId,
+            order_id: orderId,
+            commission_type: 'matching_bonus',
+            amount: matchingBonus,
+            level: 0,
+            from_user_id: null,
+            status: 'pending',
+          });
+        }
+      }
 
       console.log('Commission Breakdown:', {
         totalSale,
         vendorEarnings,
         platformCommission,
-        referrerCommission,
-        hfcPoolAmount,
-        companyProfit,
+        binaryTreeCommissions: 'Calculated based on upline chain',
       });
     }
   } catch (err) {

@@ -9,6 +9,7 @@ import AffiliateDashboard from './pages/dashboards/AffiliateDashboard';
 import Marketplace from './pages/Marketplace';
 import ProductManagement from './pages/vendor/ProductManagement';
 import AffiliateLinks from './pages/affiliate/AffiliateLinks';
+import PackageSelection from './pages/affiliate/PackageSelection';
 
 function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: string }) {
   const { isAuthenticated, roles, loading } = useAuth();
@@ -97,6 +98,15 @@ export default function App() {
           element={
             <ProtectedRoute requiredRole="affiliate">
               <AffiliateLinks />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/affiliate/packages"
+          element={
+            <ProtectedRoute requiredRole="affiliate">
+              <PackageSelection />
             </ProtectedRoute>
           }
         />
