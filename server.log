@@ -1,0 +1,6 @@
+
+> multivendor-ecosystem@0.1.0 start
+> node server.js
+
+[dotenv@17.2.3] injecting env (5) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+🚀 HFC PROTOCOL SERVER READY on port 3000
