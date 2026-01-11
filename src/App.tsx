@@ -32,21 +32,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        <Route
-          path="/"
-          element={
-            isAuthenticated ? <Navigate to="/marketplace" /> : <Navigate to="/login" />
-          }
-        />
-
-        <Route
-          path="/marketplace"
-          element={
-            <ProtectedRoute>
-              <Marketplace />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/" element={<Marketplace />} />
+        <Route path="/marketplace" element={<Marketplace />} />
 
         <Route
           path="/admin/*"
