@@ -1,0 +1,82 @@
+import { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../utils/supabase';
+import { Menu, LogOut, ShoppingBag, BarChart3, Users, User } from 'lucide-react';
+import './Layout.css';
+
+interface LayoutProps {
+  children: ReactNode;
+  title: string;
+  sidebarLinks?: { label: string; href: string; icon: ReactNode }[];
+}
+
+export default function Layout({ children, title, sidebarLinks = [] }: LayoutProps) {
+  const navigate = useNavigate();
+  const { user, roles } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = React.useState(false);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/login');
+  };
+
+  const defaultLinks = [
+    { label: 'Marketplace', href: '/marketplace', icon: <ShoppingBag /> },
+    roles.includes('admin') && { label: 'Admin', href: '/admin', icon: <BarChart3 /> },
+    roles.includes('vendor') && { label: 'Vendor', href: '/vendor', icon: <ShoppingBag /> },
+    roles.includes('affiliate') && { label: 'Affiliate', href: '/affiliate', icon: <Users /> },
+    roles.includes('consumer') && { label: 'Account', href: '/consumer', icon: <User /> },
+  ].filter(Boolean) as any[];
+
+  const allLinks = sidebarLinks.length > 0 ? sidebarLinks : defaultLinks;
+
+  return (
+    <div className="layout">
+      <nav className="navbar">
+        <div className="navbar-content">
+          <button
+            className="navbar-toggle"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            <Menu />
+          </button>
+          <h1 className="navbar-title">MultiVendor Ecosystem</h1>
+          <div className="navbar-user">
+            <span>{user?.full_name}</span>
+            <button onClick={handleLogout} className="btn-logout" title="Logout">
+              <LogOut size={20} />
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div className="layout-container">
+        <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+          <div className="sidebar-links">
+            {allLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className="sidebar-link"
+                onClick={() => setSidebarOpen(false)}
+              >
+                {link.icon}
+                <span>{link.label}</span>
+              </a>
+            ))}
+          </div>
+        </aside>
+
+        <main className="main-content">
+          <div className="content-header">
+            <h2>{title}</h2>
+          </div>
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+import React from 'react';
