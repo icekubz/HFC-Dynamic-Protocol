@@ -18,7 +18,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'dist')));
 
 const COMM_SELF = 0.10;
 const COMM_DIRECT = 0.15;
@@ -353,9 +353,11 @@ app.post('/api/admin/create-user', async (req, res) => {
     res.json({ success: true, userId: uid });
 });
 
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/admin.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get('/dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 HFC PROTOCOL SERVER READY on port ${PORT}`));
