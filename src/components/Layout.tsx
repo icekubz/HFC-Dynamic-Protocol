@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../utils/supabase';
@@ -14,7 +14,7 @@ interface LayoutProps {
 export default function Layout({ children, title, sidebarLinks = [] }: LayoutProps) {
   const navigate = useNavigate();
   const { user, roles } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -43,7 +43,16 @@ export default function Layout({ children, title, sidebarLinks = [] }: LayoutPro
           </button>
           <h1 className="navbar-title">MultiVendor Ecosystem</h1>
           <div className="navbar-user">
-            <span>{user?.full_name}</span>
+            <div className="user-info">
+              <span className="user-name">{user?.full_name || user?.email}</span>
+              <div className="user-roles">
+                {roles.map((role) => (
+                  <span key={role} className={`role-badge role-${role}`}>
+                    {role}
+                  </span>
+                ))}
+              </div>
+            </div>
             <button onClick={handleLogout} className="btn-logout" title="Logout">
               <LogOut size={20} />
             </button>
@@ -78,5 +87,3 @@ export default function Layout({ children, title, sidebarLinks = [] }: LayoutPro
     </div>
   );
 }
-
-import React from 'react';
