@@ -1,3 +1,6 @@
+import { supabase } from '../utils/supabase';
+import { calculateHFCCommissions } from './hfcCommissionService';
+
 export async function createPaymentIntent(amount: number, orderId: string) {
   try {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -28,6 +31,63 @@ export async function createPaymentIntent(amount: number, orderId: string) {
   } catch (error) {
     console.error('Error creating payment intent:', error);
     throw error;
+  }
+}
+
+export async function createOrder(
+  userId: string,
+  items: Array<{ productId: string; quantity: number; price: number }>,
+  totalAmount: number,
+  paymentIntentId: string
+): Promise<string | null> {
+  try {
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        buyer_id: userId,
+        total_amount: totalAmount,
+        payment_status: 'paid',
+        order_type: 'product',
+        stripe_payment_intent_id: paymentIntentId,
+      })
+      .select('id')
+      .single();
+
+    if (orderError) throw orderError;
+
+    const orderItems = items.map((item) => ({
+      order_id: order.id,
+      product_id: item.productId,
+      quantity: item.quantity,
+      price: item.price,
+      subtotal: item.price * item.quantity,
+    }));
+
+    const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+
+    if (itemsError) throw itemsError;
+
+    let totalCV = 0;
+    for (const item of items) {
+      const { data: product } = await supabase
+        .from('products')
+        .select('cv_value')
+        .eq('id', item.productId)
+        .maybeSingle();
+
+      if (product?.cv_value) {
+        totalCV += product.cv_value * item.quantity;
+      }
+    }
+
+    if (totalCV > 0) {
+      await calculateHFCCommissions(order.id, userId, totalCV);
+    }
+
+    return order.id;
+  } catch (error) {
+    console.error('Error creating order:', error);
+    return null;
   }
 }
 
