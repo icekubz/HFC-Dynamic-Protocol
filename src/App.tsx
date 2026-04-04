@@ -6,6 +6,8 @@ import AdminDashboard from './pages/dashboards/AdminDashboard';
 import ConsumerDashboard from './pages/dashboards/ConsumerDashboard';
 import VendorDashboard from './pages/dashboards/VendorDashboard';
 import AffiliateDashboard from './pages/dashboards/AffiliateDashboard';
+import TEEAdminDashboard from './pages/dashboards/TEEAdminDashboard';
+import TEEAffiliateDashboard from './pages/dashboards/TEEAffiliateDashboard';
 import Marketplace from './pages/Marketplace';
 import ProductManagement from './pages/vendor/ProductManagement';
 import AffiliateLinks from './pages/affiliate/AffiliateLinks';
@@ -94,6 +96,24 @@ export default function App() {
           element={
             <ProtectedRoute requiredRole="affiliate">
               <PackageSelection />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tee/admin"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <TEEAdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tee/affiliate"
+          element={
+            <ProtectedRoute>
+              <TEEAffiliateDashboard />
             </ProtectedRoute>
           }
         />
