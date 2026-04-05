@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../utils/supabase';
 import { Menu, LogOut, ShoppingBag, BarChart3, Users, User } from 'lucide-react';
@@ -75,15 +75,15 @@ export default function Layout({ children, title, sidebarLinks = [] }: LayoutPro
         <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
           <div className="sidebar-links">
             {allLinks.map((link) => (
-              <a
+              <Link
                 key={link.href}
-                href={link.href}
+                to={link.href}
                 className="sidebar-link"
                 onClick={() => setSidebarOpen(false)}
               >
                 {link.icon}
                 <span>{link.label}</span>
-              </a>
+              </Link>
             ))}
           </div>
         </aside>

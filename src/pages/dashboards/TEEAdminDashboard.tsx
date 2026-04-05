@@ -4,7 +4,7 @@ import Layout from '../../components/Layout';
 import { DollarSign, TrendingUp, Flame, Coins, Settings, Play } from 'lucide-react';
 import './Dashboard.css';
 
-interface TokenomicsSettings {
+interface WalletSystemSettings {
   mint_rate: number;
   withdrawal_burn_rate: number;
   total_minted: number;
@@ -23,7 +23,7 @@ interface PlatformLedger {
 }
 
 export default function TEEAdminDashboard() {
-  const [tokenomics, setTokenomics] = useState<TokenomicsSettings | null>(null);
+  const [walletSystem, setWalletSystem] = useState<WalletSystemSettings | null>(null);
   const [ledgers, setLedgers] = useState<PlatformLedger[]>([]);
   const [newMintRate, setNewMintRate] = useState('');
   const [newBurnRate, setNewBurnRate] = useState('');
@@ -36,24 +36,24 @@ export default function TEEAdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const { data: tokenomicsData } = await supabase
+      const { data: walletSystemData } = await supabase
         .from('tee_tokenomics')
         .select('*')
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (tokenomicsData) {
-        setTokenomics({
-          mint_rate: parseFloat(tokenomicsData.mint_rate),
-          withdrawal_burn_rate: parseFloat(tokenomicsData.withdrawal_burn_rate),
-          total_minted: parseFloat(tokenomicsData.total_minted),
-          total_burned: parseFloat(tokenomicsData.total_burned),
-          circulating_supply: parseFloat(tokenomicsData.circulating_supply),
-          burn_fund_fiat: parseFloat(tokenomicsData.burn_fund_fiat)
+      if (walletSystemData) {
+        setWalletSystem({
+          mint_rate: parseFloat(walletSystemData.mint_rate),
+          withdrawal_burn_rate: parseFloat(walletSystemData.withdrawal_burn_rate),
+          total_minted: parseFloat(walletSystemData.total_minted),
+          total_burned: parseFloat(walletSystemData.total_burned),
+          circulating_supply: parseFloat(walletSystemData.circulating_supply),
+          burn_fund_fiat: parseFloat(walletSystemData.burn_fund_fiat)
         });
-        setNewMintRate(tokenomicsData.mint_rate);
-        setNewBurnRate(tokenomicsData.withdrawal_burn_rate);
+        setNewMintRate(walletSystemData.mint_rate);
+        setNewBurnRate(walletSystemData.withdrawal_burn_rate);
       }
 
       const { data: ledgerData } = await supabase
@@ -84,13 +84,13 @@ export default function TEEAdminDashboard() {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) return;
 
-      const { data: tokenomicsData } = await supabase
+      const { data: walletSystemData } = await supabase
         .from('tee_tokenomics')
         .select('id')
         .limit(1)
         .single();
 
-      if (tokenomicsData) {
+      if (walletSystemData) {
         await supabase
           .from('tee_tokenomics')
           .update({
@@ -98,7 +98,7 @@ export default function TEEAdminDashboard() {
             updated_by: user.user.id,
             updated_at: new Date().toISOString()
           })
-          .eq('id', tokenomicsData.id);
+          .eq('id', walletSystemData.id);
 
         alert('Mint rate updated successfully!');
         fetchData();
@@ -114,13 +114,13 @@ export default function TEEAdminDashboard() {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) return;
 
-      const { data: tokenomicsData } = await supabase
+      const { data: walletSystemData } = await supabase
         .from('tee_tokenomics')
         .select('id')
         .limit(1)
         .single();
 
-      if (tokenomicsData) {
+      if (walletSystemData) {
         await supabase
           .from('tee_tokenomics')
           .update({
@@ -128,7 +128,7 @@ export default function TEEAdminDashboard() {
             updated_by: user.user.id,
             updated_at: new Date().toISOString()
           })
-          .eq('id', tokenomicsData.id);
+          .eq('id', walletSystemData.id);
 
         alert('Withdrawal burn rate updated successfully!');
         fetchData();
@@ -219,7 +219,7 @@ export default function TEEAdminDashboard() {
                 </button>
               </div>
               <small style={{ color: '#666', fontSize: '12px' }}>
-                Current: {tokenomics?.mint_rate} HFC per $1
+                Current: {walletSystem?.mint_rate} HFC per $1
               </small>
             </div>
 
@@ -238,30 +238,30 @@ export default function TEEAdminDashboard() {
                 </button>
               </div>
               <small style={{ color: '#666', fontSize: '12px' }}>
-                Current: {tokenomics?.withdrawal_burn_rate}% fee
+                Current: {walletSystem?.withdrawal_burn_rate}% fee
               </small>
             </div>
           </div>
         </div>
 
         <div className="card">
-          <h3><Flame size={20} /> Web3 Ledger</h3>
+          <h3><Flame size={20} /> Internal Wallet System</h3>
           <div className="stats-grid">
             <div className="stat-item">
               <div className="stat-label">Total Minted</div>
-              <div className="stat-value">{tokenomics?.total_minted.toFixed(2)} HFC</div>
+              <div className="stat-value">{walletSystem?.total_minted.toFixed(2)} HFC</div>
             </div>
             <div className="stat-item">
               <div className="stat-label">Total Burned</div>
-              <div className="stat-value">{tokenomics?.total_burned.toFixed(2)} HFC</div>
+              <div className="stat-value">{walletSystem?.total_burned.toFixed(2)} HFC</div>
             </div>
             <div className="stat-item">
               <div className="stat-label">Circulating Supply</div>
-              <div className="stat-value">{tokenomics?.circulating_supply.toFixed(2)} HFC</div>
+              <div className="stat-value">{walletSystem?.circulating_supply.toFixed(2)} HFC</div>
             </div>
             <div className="stat-item">
               <div className="stat-label">Burn Fund (Fiat)</div>
-              <div className="stat-value">${tokenomics?.burn_fund_fiat.toFixed(2)}</div>
+              <div className="stat-value">${walletSystem?.burn_fund_fiat.toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -294,7 +294,7 @@ export default function TEEAdminDashboard() {
           </div>
           <div className="stat-content">
             <div className="stat-label">Total Burn Fund</div>
-            <div className="stat-value">${tokenomics?.burn_fund_fiat.toFixed(2)}</div>
+            <div className="stat-value">${walletSystem?.burn_fund_fiat.toFixed(2)}</div>
           </div>
         </div>
 
