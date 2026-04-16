@@ -4,81 +4,88 @@ import Layout from '../../components/Layout';
 import { Percent, Save, FileEdit as Edit2 } from 'lucide-react';
 import '../dashboards/Dashboard.css';
 
-interface Package {
-  id: string;
-  name: string;
-  direct_commission_rate: number;
-  level_2_commission_rate: number;
-  level_3_commission_rate: number;
-  matching_bonus_rate: number;
+interface TokenomicsSettings {
+  mint_rate: number;
+  withdrawal_burn_rate: number;
+  burn_fund_fiat: number;
 }
 
 export default function CommissionManagement() {
-  const [packages, setPackages] = useState<Package[]>([]);
+  const [tokenomics, setTokenomics] = useState<TokenomicsSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
-    direct_commission_rate: 0,
-    level_2_commission_rate: 0,
-    level_3_commission_rate: 0,
-    matching_bonus_rate: 0,
+    mint_rate: 10.0,
+    withdrawal_burn_rate: 5.0,
   });
 
   useEffect(() => {
-    fetchPackages();
+    fetchTokenomics();
   }, []);
 
-  const fetchPackages = async () => {
+  const fetchTokenomics = async () => {
     try {
       const { data } = await supabase
-        .from('affiliate_packages')
+        .from('tee_tokenomics')
         .select('*')
-        .order('created_at');
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      setPackages(data || []);
+      if (data) {
+        setTokenomics({
+          mint_rate: parseFloat(data.mint_rate),
+          withdrawal_burn_rate: parseFloat(data.withdrawal_burn_rate),
+          burn_fund_fiat: parseFloat(data.burn_fund_fiat),
+        });
+        setFormData({
+          mint_rate: parseFloat(data.mint_rate),
+          withdrawal_burn_rate: parseFloat(data.withdrawal_burn_rate),
+        });
+      }
     } catch (err) {
-      console.error('Error fetching packages:', err);
+      console.error('Error fetching tokenomics:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEdit = (pkg: Package) => {
-    setEditingId(pkg.id);
-    setFormData({
-      direct_commission_rate: pkg.direct_commission_rate,
-      level_2_commission_rate: pkg.level_2_commission_rate,
-      level_3_commission_rate: pkg.level_3_commission_rate,
-      matching_bonus_rate: pkg.matching_bonus_rate,
-    });
-  };
-
   const handleSave = async () => {
     try {
-      if (editingId) {
-        await supabase
-          .from('affiliate_packages')
-          .update(formData)
-          .eq('id', editingId);
+      const { data: settings } = await supabase
+        .from('tee_tokenomics')
+        .select('id')
+        .limit(1)
+        .single();
 
-        alert('Commission rates updated successfully');
-        setEditingId(null);
-        fetchPackages();
+      if (settings) {
+        await supabase
+          .from('tee_tokenomics')
+          .update({
+            mint_rate: formData.mint_rate,
+            withdrawal_burn_rate: formData.withdrawal_burn_rate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', settings.id);
+
+        alert('Commission settings updated successfully');
+        setIsEditing(false);
+        fetchTokenomics();
       }
     } catch (err) {
-      console.error('Error saving config:', err);
-      alert('Failed to save commission rates');
+      console.error('Error saving tokenomics:', err);
+      alert('Failed to save commission settings');
     }
   };
 
   const handleCancel = () => {
-    setEditingId(null);
-    setFormData({
-      direct_commission_rate: 0,
-      level_2_commission_rate: 0,
-      level_3_commission_rate: 0,
-      matching_bonus_rate: 0,
-    });
+    setIsEditing(false);
+    if (tokenomics) {
+      setFormData({
+        mint_rate: tokenomics.mint_rate,
+        withdrawal_burn_rate: tokenomics.withdrawal_burn_rate,
+      });
+    }
   };
 
   return (
@@ -86,100 +93,94 @@ export default function CommissionManagement() {
       <div className="management-container">
         <div className="management-header">
           <h2><Percent /> Commission Management</h2>
-          <p>Configure commission rates for affiliate packages</p>
+          <p>Configure TEE platform commission structure</p>
         </div>
 
         {loading ? (
-          <p>Loading packages...</p>
+          <p>Loading configuration...</p>
         ) : (
           <div className="commission-management">
-            {editingId ? (
-              <div className="settings-form">
-                <h3>Edit Commission Rates</h3>
-
-                <div className="form-group">
-                  <label>Direct Commission Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.direct_commission_rate}
-                    onChange={(e) => setFormData({ ...formData, direct_commission_rate: parseFloat(e.target.value) })}
-                  />
-                  <small>Commission from direct referrals (Level 1)</small>
-                </div>
-
-                <div className="form-group">
-                  <label>Level 2 Commission Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.level_2_commission_rate}
-                    onChange={(e) => setFormData({ ...formData, level_2_commission_rate: parseFloat(e.target.value) })}
-                  />
-                  <small>Commission from Level 2 downline</small>
-                </div>
-
-                <div className="form-group">
-                  <label>Level 3 Commission Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.level_3_commission_rate}
-                    onChange={(e) => setFormData({ ...formData, level_3_commission_rate: parseFloat(e.target.value) })}
-                  />
-                  <small>Commission from Level 3 downline</small>
-                </div>
-
-                <div className="form-group">
-                  <label>Matching Bonus Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.matching_bonus_rate}
-                    onChange={(e) => setFormData({ ...formData, matching_bonus_rate: parseFloat(e.target.value) })}
-                  />
-                  <small>Matching bonus on downline performance</small>
-                </div>
-
-                <div className="form-actions">
-                  <button onClick={handleSave} className="btn btn-primary">
-                    <Save size={16} /> Save Changes
-                  </button>
-                  <button onClick={handleCancel} className="btn btn-secondary">Cancel</button>
+            <div className="commission-structure">
+              <div className="structure-section">
+                <h3>Affiliate Commission Breakdown</h3>
+                <div className="commission-items">
+                  <div className="commission-item">
+                    <div className="item-label">Self Commission</div>
+                    <div className="item-value">10%</div>
+                    <div className="item-description">10% of personal CV ingested</div>
+                  </div>
+                  <div className="commission-item">
+                    <div className="item-label">Direct Commission</div>
+                    <div className="item-value">15%</div>
+                    <div className="item-description">15% of direct referral CV</div>
+                  </div>
+                  <div className="commission-item">
+                    <div className="item-label">Passive Commission</div>
+                    <div className="item-value">50% ÷ Depth</div>
+                    <div className="item-description">50% of downline CV divided by max(5, actual depth)</div>
+                  </div>
+                  <div className="commission-item">
+                    <div className="item-label">Platform Fees</div>
+                    <div className="item-value">25%</div>
+                    <div className="item-description">12.5% burn fund + 12.5% net profit</div>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div className="table-container">
-                <table className="management-table">
-                  <thead>
-                    <tr>
-                      <th>Package Name</th>
-                      <th>Direct Rate (%)</th>
-                      <th>Level 2 Rate (%)</th>
-                      <th>Level 3 Rate (%)</th>
-                      <th>Matching Bonus (%)</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {packages.map((pkg) => (
-                      <tr key={pkg.id}>
-                        <td>{pkg.name}</td>
-                        <td>{pkg.direct_commission_rate.toFixed(2)}</td>
-                        <td>{pkg.level_2_commission_rate.toFixed(2)}</td>
-                        <td>{pkg.level_3_commission_rate.toFixed(2)}</td>
-                        <td>{pkg.matching_bonus_rate.toFixed(2)}</td>
-                        <td>
-                          <button onClick={() => handleEdit(pkg)} className="btn-small btn-primary">
-                            <Edit2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              <div className="structure-section">
+                <h3>Tokenomics Configuration</h3>
+                {isEditing ? (
+                  <div className="settings-form">
+                    <div className="form-group">
+                      <label>Mint Rate (tokens per CV)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formData.mint_rate}
+                        onChange={(e) => setFormData({ ...formData, mint_rate: parseFloat(e.target.value) })}
+                      />
+                      <small>Number of tokens minted for each CV ingested</small>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Withdrawal Burn Rate (%)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formData.withdrawal_burn_rate}
+                        onChange={(e) => setFormData({ ...formData, withdrawal_burn_rate: parseFloat(e.target.value) })}
+                      />
+                      <small>Percentage of withdrawal amount to burn and add to burn fund</small>
+                    </div>
+
+                    <div className="form-actions">
+                      <button onClick={handleSave} className="btn btn-primary">
+                        <Save size={16} /> Save Settings
+                      </button>
+                      <button onClick={handleCancel} className="btn btn-secondary">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="tokenomics-display">
+                    <div className="tokenomics-item">
+                      <span className="label">Mint Rate:</span>
+                      <span className="value">{tokenomics?.mint_rate.toFixed(2)} tokens per CV</span>
+                    </div>
+                    <div className="tokenomics-item">
+                      <span className="label">Withdrawal Burn Rate:</span>
+                      <span className="value">{tokenomics?.withdrawal_burn_rate.toFixed(2)}%</span>
+                    </div>
+                    <div className="tokenomics-item">
+                      <span className="label">Burn Fund (Fiat):</span>
+                      <span className="value">${tokenomics?.burn_fund_fiat.toFixed(2)}</span>
+                    </div>
+                    <button onClick={() => setIsEditing(true)} className="btn btn-primary">
+                      <Edit2 size={16} /> Edit Settings
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
