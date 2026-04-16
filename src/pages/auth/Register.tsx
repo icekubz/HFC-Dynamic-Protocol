@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { Mail, Lock, User, AlertCircle, Loader } from 'lucide-react';
 import './auth.css';
@@ -172,7 +172,7 @@ export default function Register() {
 
         <div className="auth-footer">
           Already have an account?{' '}
-          <a href="/login">Sign in</a>
+          <Link to="/login">Sign in</Link>
         </div>
       </div>
     </div>

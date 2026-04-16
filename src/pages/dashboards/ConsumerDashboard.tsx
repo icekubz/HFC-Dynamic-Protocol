@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import Layout from '../../components/Layout';
@@ -6,6 +7,7 @@ import { ShoppingBag, TrendingUp, Wallet, User } from 'lucide-react';
 import './Dashboard.css';
 
 export default function ConsumerDashboard() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
   const [stats, setStats] = useState({
@@ -89,7 +91,7 @@ export default function ConsumerDashboard() {
           <h3>Profile Information</h3>
           <p className="stat-title">Name: {user?.full_name}</p>
           <p className="stat-title">Email: {user?.email}</p>
-          <button className="btn btn-primary" style={{ marginTop: '1rem' }}>
+          <button onClick={() => navigate('/consumer/edit')} className="btn btn-primary" style={{ marginTop: '1rem' }}>
             Edit Profile
           </button>
         </div>
@@ -97,13 +99,13 @@ export default function ConsumerDashboard() {
         <div className="card">
           <h3>Purchase History</h3>
           <p>View your complete order history</p>
-          <button className="btn btn-primary">View Orders</button>
+          <button onClick={() => navigate('/consumer/orders')} className="btn btn-primary">View Orders</button>
         </div>
 
         <div className="card">
           <h3>Referral Program</h3>
           <p>Earn commissions by referring friends</p>
-          <button className="btn btn-primary">Manage Referrals</button>
+          <button onClick={() => navigate('/consumer/referrals')} className="btn btn-primary">Manage Referrals</button>
         </div>
 
         <div className="card">
