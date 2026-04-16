@@ -2,12 +2,28 @@ import { supabase } from '../utils/supabase';
 import { teeBinaryTreeService } from './teeBinaryTreeService';
 import { teeTokenomicsService } from './teeTokenomicsService';
 
+export interface CommissionRates {
+  selfRate: number;
+  directRate: number;
+  passiveRate: number;
+  platformRate: number;
+  passiveDivisor: number;
+}
+
 export interface CommissionCalculation {
   affiliateId: string;
   selfCommission: number;
   directCommission: number;
   passiveCommission: number;
   totalCommission: number;
+  ratesApplied: CommissionRates;
+  calculationBreakdown: {
+    personalCV: number;
+    directReferralCV: number;
+    downlineCV: number;
+    maxDepth: number;
+    divisorUsed: number;
+  };
 }
 
 export interface BatchResult {
@@ -19,51 +35,85 @@ export interface BatchResult {
   burnFundAllocated: number;
   platformNetProfit: number;
   commissionsCalculated: CommissionCalculation[];
+  ratesUsed: CommissionRates;
+  verificationHash: string;
   error?: string;
 }
 
-const CUSTOM_DIVISOR = 5;
-
 export class TEECommissionEngine {
   /**
-   * Calculate Self Commission: 10% of personal CV
+   * Fetch active commission rates from database
    */
-  calculateSelfCommission(personalCV: number): number {
-    return personalCV * 0.10;
+  private async getActiveCommissionRates(): Promise<CommissionRates> {
+    const { data, error } = await supabase
+      .from('tee_commission_rates')
+      .select('*')
+      .eq('is_active', true)
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.warn('No active commission rates found, using defaults');
+      return {
+        selfRate: 10.0,
+        directRate: 15.0,
+        passiveRate: 50.0,
+        platformRate: 25.0,
+        passiveDivisor: 5,
+      };
+    }
+
+    return {
+      selfRate: parseFloat(data.self_commission_rate),
+      directRate: parseFloat(data.direct_commission_rate),
+      passiveRate: parseFloat(data.passive_commission_rate),
+      platformRate: parseFloat(data.platform_commission_rate),
+      passiveDivisor: data.passive_divisor,
+    };
   }
 
   /**
-   * Calculate Direct Commission: 15% of CV from direct referrals
+   * Calculate Self Commission: X% of personal CV
    */
-  async calculateDirectCommission(affiliateId: string, unprocessedOrders: any[]): Promise<number> {
+  calculateSelfCommission(personalCV: number, selfRate: number): number {
+    return personalCV * (selfRate / 100);
+  }
+
+  /**
+   * Calculate Direct Commission: X% of CV from direct referrals
+   */
+  async calculateDirectCommission(
+    affiliateId: string,
+    unprocessedOrders: any[],
+    directRate: number
+  ): Promise<{ commission: number; cv: number }> {
     const directReferrals = await teeBinaryTreeService.getDirectReferrals(affiliateId);
 
-    if (directReferrals.length === 0) return 0;
+    if (directReferrals.length === 0) return { commission: 0, cv: 0 };
 
     const directReferralCV = unprocessedOrders
       .filter(order => directReferrals.includes(order.affiliate_id))
       .reduce((sum, order) => sum + parseFloat(order.cv), 0);
 
-    return directReferralCV * 0.15;
+    const commission = directReferralCV * (directRate / 100);
+    return { commission, cv: directReferralCV };
   }
 
   /**
-   * Calculate Passive Commission: 50% of downline CV, divided by max(Custom_Divisor, Actual_Depth)
-   *
-   * Rules:
-   * 1. Scan downline using BFS up to node_cap limit
-   * 2. Sum total CV from scanned nodes
-   * 3. Find maximum depth of active downline
-   * 4. Divisor = max(CUSTOM_DIVISOR, Actual_Depth)
-   * 5. Payout = (Scanned_Volume * 50%) / Divisor
+   * Calculate Passive Commission: X% of downline CV, divided by max(Divisor, Actual_Depth)
    */
   async calculatePassiveCommission(
     affiliateId: string,
-    unprocessedOrders: any[]
-  ): Promise<number> {
+    unprocessedOrders: any[],
+    passiveRate: number,
+    passiveDivisor: number
+  ): Promise<{ commission: number; cv: number; depth: number; divisorUsed: number }> {
     const downlineNodes = await teeBinaryTreeService.getDownlineNodes(affiliateId);
 
-    if (downlineNodes.length === 0) return 0;
+    if (downlineNodes.length === 0) {
+      return { commission: 0, cv: 0, depth: 0, divisorUsed: passiveDivisor };
+    }
 
     const downlineAffiliateIds = downlineNodes.map(node => node.affiliate_id);
 
@@ -71,28 +121,30 @@ export class TEECommissionEngine {
       .filter(order => downlineAffiliateIds.includes(order.affiliate_id))
       .reduce((sum, order) => sum + parseFloat(order.cv), 0);
 
-    if (downlineCV === 0) return 0;
+    if (downlineCV === 0) {
+      return { commission: 0, cv: 0, depth: 0, divisorUsed: passiveDivisor };
+    }
 
     const actualDepth = await teeBinaryTreeService.getMaxDepth(affiliateId);
+    const divisorUsed = Math.max(passiveDivisor, actualDepth);
+    const commission = (downlineCV * (passiveRate / 100)) / divisorUsed;
 
-    const divisor = Math.max(CUSTOM_DIVISOR, actualDepth);
-
-    const passiveCommission = (downlineCV * 0.50) / divisor;
-
-    return passiveCommission;
+    return { commission, cv: downlineCV, depth: actualDepth, divisorUsed };
   }
 
   /**
-   * Process monthly batch commission calculations
+   * Process monthly batch commission calculations with dynamic rates
    *
-   * Total Allocation:
-   * - 75% to affiliates (10% self + 15% direct + 50% passive)
-   * - 25% to platform (12.5% burn fund + 12.5% net profit)
+   * Total Allocation (dynamic):
+   * - Affiliate share: self + direct + passive rates
+   * - Platform share: platform rate (burn fund + net profit)
    */
   async runBatchCalculation(): Promise<BatchResult> {
     const batchId = `batch_${Date.now()}`;
 
     try {
+      const rates = await this.getActiveCommissionRates();
+
       const { data: unprocessedOrders, error: ordersError } = await supabase
         .from('tee_orders')
         .select('*')
@@ -110,6 +162,8 @@ export class TEECommissionEngine {
           burnFundAllocated: 0,
           platformNetProfit: 0,
           commissionsCalculated: [],
+          ratesUsed: rates,
+          verificationHash: '',
           error: 'No unprocessed orders found'
         };
       }
@@ -136,21 +190,40 @@ export class TEECommissionEngine {
         );
         const personalCV = personalOrders.reduce((sum, order) => sum + parseFloat(order.cv), 0);
 
-        const selfCommission = this.calculateSelfCommission(personalCV);
+        const selfCommission = this.calculateSelfCommission(personalCV, rates.selfRate);
 
-        const directCommission = await this.calculateDirectCommission(affiliateId, unprocessedOrders);
+        const directResult = await this.calculateDirectCommission(
+          affiliateId,
+          unprocessedOrders,
+          rates.directRate
+        );
 
-        const passiveCommission = await this.calculatePassiveCommission(affiliateId, unprocessedOrders);
+        const passiveResult = await this.calculatePassiveCommission(
+          affiliateId,
+          unprocessedOrders,
+          rates.passiveRate,
+          rates.passiveDivisor
+        );
 
-        const totalCommission = selfCommission + directCommission + passiveCommission;
+        const totalCommission = selfCommission + directResult.commission + passiveResult.commission;
 
         if (totalCommission > 0) {
+          const calculationBreakdown = {
+            personalCV,
+            directReferralCV: directResult.cv,
+            downlineCV: passiveResult.cv,
+            maxDepth: passiveResult.depth,
+            divisorUsed: passiveResult.divisorUsed,
+          };
+
           commissionsCalculated.push({
             affiliateId,
             selfCommission,
-            directCommission,
-            passiveCommission,
-            totalCommission
+            directCommission: directResult.commission,
+            passiveCommission: passiveResult.commission,
+            totalCommission,
+            ratesApplied: rates,
+            calculationBreakdown
           });
 
           if (selfCommission > 0) {
@@ -160,29 +233,44 @@ export class TEECommissionEngine {
               amount: selfCommission,
               cv_used: personalCV,
               batch_id: batchId,
-              status: 'paid'
+              status: 'paid',
+              self_rate_applied: rates.selfRate,
+              direct_rate_applied: rates.directRate,
+              passive_rate_applied: rates.passiveRate,
+              platform_rate_applied: rates.platformRate,
+              calculation_details: calculationBreakdown
             });
           }
 
-          if (directCommission > 0) {
+          if (directResult.commission > 0) {
             commissionRecords.push({
               affiliate_id: affiliateId,
               commission_type: 'direct',
-              amount: directCommission,
-              cv_used: 0,
+              amount: directResult.commission,
+              cv_used: directResult.cv,
               batch_id: batchId,
-              status: 'paid'
+              status: 'paid',
+              self_rate_applied: rates.selfRate,
+              direct_rate_applied: rates.directRate,
+              passive_rate_applied: rates.passiveRate,
+              platform_rate_applied: rates.platformRate,
+              calculation_details: calculationBreakdown
             });
           }
 
-          if (passiveCommission > 0) {
+          if (passiveResult.commission > 0) {
             commissionRecords.push({
               affiliate_id: affiliateId,
               commission_type: 'passive',
-              amount: passiveCommission,
-              cv_used: 0,
+              amount: passiveResult.commission,
+              cv_used: passiveResult.cv,
               batch_id: batchId,
-              status: 'paid'
+              status: 'paid',
+              self_rate_applied: rates.selfRate,
+              direct_rate_applied: rates.directRate,
+              passive_rate_applied: rates.passiveRate,
+              platform_rate_applied: rates.platformRate,
+              calculation_details: calculationBreakdown
             });
           }
 
@@ -236,9 +324,18 @@ export class TEECommissionEngine {
         0
       );
 
-      const platformEarning = totalCV * 0.25;
+      const platformEarning = totalCV * (rates.platformRate / 100);
       const burnFundAllocated = platformEarning * 0.50;
       const platformNetProfit = platformEarning * 0.50;
+
+      const verificationHash = this.generateVerificationHash({
+        batchId,
+        totalCV,
+        totalCommissionsPaid,
+        platformEarning,
+        rates,
+        commissionsCount: commissionsCalculated.length
+      });
 
       const period = new Date().toISOString().slice(0, 7);
 
@@ -261,10 +358,13 @@ export class TEECommissionEngine {
         platformEarning,
         burnFundAllocated,
         platformNetProfit,
-        commissionsCalculated
+        commissionsCalculated,
+        ratesUsed: rates,
+        verificationHash
       };
     } catch (error) {
       console.error('Batch calculation error:', error);
+      const rates = await this.getActiveCommissionRates();
       return {
         success: false,
         batchId,
@@ -274,9 +374,32 @@ export class TEECommissionEngine {
         burnFundAllocated: 0,
         platformNetProfit: 0,
         commissionsCalculated: [],
+        ratesUsed: rates,
+        verificationHash: '',
         error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
+  }
+
+  /**
+   * Generate verification hash for audit trail
+   */
+  private generateVerificationHash(data: {
+    batchId: string;
+    totalCV: number;
+    totalCommissionsPaid: number;
+    platformEarning: number;
+    rates: CommissionRates;
+    commissionsCount: number;
+  }): string {
+    const str = JSON.stringify(data);
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
   }
 }
 
