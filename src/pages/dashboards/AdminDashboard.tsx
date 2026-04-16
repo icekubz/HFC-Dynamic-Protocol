@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { calculateCompanyProfit } from '../../services/commissionService';
 import Layout from '../../components/Layout';
@@ -6,6 +7,7 @@ import { BarChart3, Users, ShoppingBag, TrendingUp, DollarSign, Percent } from '
 import './Dashboard.css';
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalProducts: 0,
@@ -101,25 +103,25 @@ export default function AdminDashboard() {
         <div className="card">
           <h3>User Management</h3>
           <p>Manage user roles and permissions</p>
-          <button className="btn btn-primary">Manage Users</button>
+          <button onClick={() => navigate('/admin/users')} className="btn btn-primary">Manage Users</button>
         </div>
 
         <div className="card">
           <h3>Category Management</h3>
           <p>Create and manage product categories</p>
-          <button className="btn btn-primary">Manage Categories</button>
+          <button onClick={() => navigate('/admin/categories')} className="btn btn-primary">Manage Categories</button>
         </div>
 
         <div className="card">
           <h3>Commission Management</h3>
           <p>Configure commission rules and payouts</p>
-          <button className="btn btn-primary">Manage Commissions</button>
+          <button onClick={() => navigate('/admin/commissions')} className="btn btn-primary">Manage Commissions</button>
         </div>
 
         <div className="card">
           <h3>Reports & Analytics</h3>
           <p>View detailed analytics and reports</p>
-          <button className="btn btn-primary">View Reports</button>
+          <button onClick={() => navigate('/admin/reports')} className="btn btn-primary">View Reports</button>
         </div>
       </div>
     </Layout>

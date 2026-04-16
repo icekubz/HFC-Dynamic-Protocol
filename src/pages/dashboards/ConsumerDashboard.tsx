@@ -111,7 +111,7 @@ export default function ConsumerDashboard() {
         <div className="card">
           <h3>Become a Vendor</h3>
           <p>Start selling your products on our platform</p>
-          <button className="btn btn-secondary">Apply as Vendor</button>
+          <button onClick={() => navigate('/vendor')} className="btn btn-secondary">Apply as Vendor</button>
         </div>
       </div>
     </Layout>
