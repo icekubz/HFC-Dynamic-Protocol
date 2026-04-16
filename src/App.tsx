@@ -12,6 +12,17 @@ import Marketplace from './pages/Marketplace';
 import ProductManagement from './pages/vendor/ProductManagement';
 import AffiliateLinks from './pages/affiliate/AffiliateLinks';
 import PackageSelection from './pages/affiliate/PackageSelection';
+import UserManagement from './pages/admin/UserManagement';
+import CategoryManagement from './pages/admin/CategoryManagement';
+import CommissionManagement from './pages/admin/CommissionManagement';
+import Reports from './pages/admin/Reports';
+import EditProfile from './pages/consumer/EditProfile';
+import OrderHistory from './pages/consumer/OrderHistory';
+import Referrals from './pages/consumer/Referrals';
+import OrderManagement from './pages/vendor/OrderManagement';
+import Earnings from './pages/vendor/Earnings';
+import BinaryTree from './pages/affiliate/BinaryTree';
+import CommissionHistory from './pages/affiliate/CommissionHistory';
 
 function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: string }) {
   const { isAuthenticated, roles, loading } = useAuth();
@@ -38,7 +49,7 @@ export default function App() {
         <Route path="/marketplace" element={<Marketplace />} />
 
         <Route
-          path="/admin/*"
+          path="/admin"
           element={
             <ProtectedRoute requiredRole="admin">
               <AdminDashboard />
@@ -47,10 +58,73 @@ export default function App() {
         />
 
         <Route
-          path="/consumer/*"
+          path="/admin/users"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <UserManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/categories"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <CategoryManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/commissions"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <CommissionManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/reports"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <Reports />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/consumer"
           element={
             <ProtectedRoute requiredRole="consumer">
               <ConsumerDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/consumer/edit"
+          element={
+            <ProtectedRoute requiredRole="consumer">
+              <EditProfile />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/consumer/orders"
+          element={
+            <ProtectedRoute requiredRole="consumer">
+              <OrderHistory />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/consumer/referrals"
+          element={
+            <ProtectedRoute requiredRole="consumer">
+              <Referrals />
             </ProtectedRoute>
           }
         />
@@ -69,6 +143,24 @@ export default function App() {
           element={
             <ProtectedRoute requiredRole="vendor">
               <ProductManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/vendor/orders"
+          element={
+            <ProtectedRoute requiredRole="vendor">
+              <OrderManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/vendor/earnings"
+          element={
+            <ProtectedRoute requiredRole="vendor">
+              <Earnings />
             </ProtectedRoute>
           }
         />
@@ -96,6 +188,24 @@ export default function App() {
           element={
             <ProtectedRoute requiredRole="affiliate">
               <PackageSelection />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/affiliate/tree"
+          element={
+            <ProtectedRoute requiredRole="affiliate">
+              <BinaryTree />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/affiliate/commissions"
+          element={
+            <ProtectedRoute requiredRole="affiliate">
+              <CommissionHistory />
             </ProtectedRoute>
           }
         />
